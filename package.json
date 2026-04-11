@@ -1,0 +1,36 @@
+{
+  "name": "facenode",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open-source 3D talking head for AI agents",
+  "license": "MIT",
+  "homepage": "https://github.com/asimons81/facenode",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/asimons81/facenode.git"
+  },
+  "keywords": ["facenode", "avatar", "ai-agent", "three.js", "websocket", "tts", "talking-head"],
+  "engines": {
+    "node": ">=20.0.0",
+    "pnpm": ">=9.0.0"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel --filter './apps/*' dev",
+    "typecheck": "tsc --build",
+    "typecheck:watch": "tsc --build --watch",
+    "test": "pnpm -r --filter './packages/*' --filter './apps/*' test",
+    "mock": "pnpm --filter @facenode/hermes-adapter mock",
+    "lint": "pnpm -r lint",
+    "clean": "pnpm -r clean && rm -rf node_modules",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "prettier": "^3.2.5",
+    "typescript": "^5.4.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["esbuild"]
+  }
+}

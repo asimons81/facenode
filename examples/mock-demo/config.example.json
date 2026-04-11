@@ -1,0 +1,16 @@
+{
+  "wsUrl": "ws://localhost:3456",
+  "skinColor": "#c8956a",
+  "accentColor": "#4FB7A0",
+  "backgroundColor": "#0a0a0a",
+  "environmentPreset": "soft",
+  "cameraPreset": "head",
+  "subtitlesEnabled": true,
+  "subtitleSize": "md",
+  "idleIntensity": 0.6,
+  "blinkFrequency": "normal",
+  "speakingSensitivity": 0.75,
+  "avatarModel": "procedural",
+  "showStateLabel": true,
+  "showConnectionStatus": true
+}

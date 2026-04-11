@@ -1,0 +1,122 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { HermesAdapterClient } from '../src/HermesAdapterClient.js';
+import type { WsStatus } from '../src/HermesAdapterClient.js';
+
+class FakeWebSocket {
+  static instances: FakeWebSocket[] = [];
+  static throwOnCreate = false;
+
+  onopen: (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onmessage: ((event: { data: unknown }) => void) | null = null;
+
+  constructor(public readonly url: string) {
+    if (FakeWebSocket.throwOnCreate) {
+      throw new Error('connect failed');
+    }
+    FakeWebSocket.instances.push(this);
+  }
+
+  close(): void {
+    // no-op for tests; unexpected closes are driven manually via emitClose().
+  }
+
+  emitOpen(): void {
+    this.onopen?.();
+  }
+
+  emitClose(): void {
+    this.onclose?.();
+  }
+}
+
+describe('HermesAdapterClient disconnect lifecycle', () => {
+  const originalWebSocket = globalThis.WebSocket;
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    FakeWebSocket.instances = [];
+    FakeWebSocket.throwOnCreate = false;
+    globalThis.WebSocket = FakeWebSocket as unknown as typeof WebSocket;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+    globalThis.WebSocket = originalWebSocket;
+  });
+
+  it('dispatches disconnected when an established socket closes unexpectedly', () => {
+    const controller = { dispatch: vi.fn() };
+    const client = new HermesAdapterClient({
+      url: 'ws://localhost:3456',
+      controller,
+    });
+
+    client.connect();
+    const ws = FakeWebSocket.instances[0];
+    expect(ws).toBeDefined();
+
+    ws!.emitOpen();
+    ws!.emitClose();
+
+    expect(controller.dispatch).toHaveBeenCalledWith({ type: 'disconnected' });
+  });
+
+  it('dispatches disconnected before error when retries are exhausted', () => {
+    FakeWebSocket.throwOnCreate = true;
+
+    const controller = { dispatch: vi.fn() };
+    const client = new HermesAdapterClient({
+      url: 'ws://localhost:3456',
+      controller,
+    });
+
+    client.connect();
+    vi.runAllTimers();
+
+    expect(controller.dispatch.mock.calls).toEqual([
+      [{ type: 'disconnected' }],
+      [
+        {
+          type: 'error',
+          message:
+            'WebSocket connection to ws://localhost:3456 failed after 5 retries.',
+        },
+      ],
+    ]);
+  });
+
+  it('tears down the prior socket before a manual reconnect and notifies both status listeners', () => {
+    const controller = { dispatch: vi.fn() };
+    const optionStatuses: WsStatus[] = [];
+    const listenerStatuses: WsStatus[] = [];
+    const client = new HermesAdapterClient({
+      url: 'ws://localhost:3456',
+      controller,
+      onStatusChange: (status) => optionStatuses.push(status),
+    });
+    client.onStatusChange((status) => listenerStatuses.push(status));
+
+    client.connect();
+    const first = FakeWebSocket.instances[0];
+    expect(first).toBeDefined();
+    first!.emitOpen();
+    first!.emitClose();
+
+    client.connect();
+    const second = FakeWebSocket.instances[1];
+    expect(second).toBeDefined();
+    second!.emitOpen();
+
+    vi.advanceTimersByTime(1000);
+
+    expect(FakeWebSocket.instances).toHaveLength(2);
+    expect(optionStatuses).toEqual(listenerStatuses);
+    expect(optionStatuses).toEqual(['connecting', 'connected', 'connecting', 'connected']);
+  });
+});

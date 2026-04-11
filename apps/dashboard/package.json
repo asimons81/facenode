@@ -1,0 +1,36 @@
+{
+  "name": "@facenode/dashboard",
+  "version": "0.2.0",
+  "description": "Live configuration dashboard — three-column layout with avatar preview, all config controls, and event log",
+  "license": "MIT",
+  "homepage": "https://github.com/asimons81/facenode",
+  "repository": { "type": "git", "url": "https://github.com/asimons81/facenode.git", "directory": "apps/dashboard" },
+  "keywords": ["facenode", "avatar", "dashboard", "three.js", "react"],
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 5174",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 5174",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@facenode/avatar-core": "workspace:*",
+    "@facenode/avatar-sdk": "workspace:*",
+    "@facenode/hermes-adapter": "workspace:*",
+    "@facenode/ui": "workspace:*",
+    "@facenode/web-avatar": "workspace:*",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.164.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.1",
+    "@types/react-dom": "^18.3.0",
+    "@types/three": "^0.164.0",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.11"
+  }
+}

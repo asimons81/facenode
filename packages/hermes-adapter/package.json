@@ -1,0 +1,39 @@
+{
+  "name": "@facenode/hermes-adapter",
+  "version": "0.2.0",
+  "description": "WebSocket bridge between Hermes AI agent events and FaceNode avatar events",
+  "license": "MIT",
+  "homepage": "https://github.com/asimons81/facenode",
+  "repository": { "type": "git", "url": "https://github.com/asimons81/facenode.git", "directory": "packages/hermes-adapter" },
+  "keywords": ["facenode", "avatar", "ai-agent", "hermes", "websocket", "adapter"],
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    },
+    "./server": {
+      "import": "./src/server.ts",
+      "types": "./src/server.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "mock": "tsx src/bin/mock.ts",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@facenode/avatar-core": "workspace:*",
+    "@facenode/avatar-sdk": "workspace:*",
+    "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "@types/ws": "^8.5.10",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.5"
+  }
+}

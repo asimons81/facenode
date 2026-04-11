@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "outDir": "./dist-node",
+    "composite": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./dist-node/.tsbuildinfo",
+    "lib": ["ES2022"]
+  },
+  "include": ["vite.config.ts"]
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "files": [],
+  "references": [
+    { "path": "./packages/avatar-core" },
+    { "path": "./packages/avatar-sdk" },
+    { "path": "./packages/hermes-adapter" },
+    { "path": "./packages/ui" },
+    { "path": "./apps/web-avatar/tsconfig.app.json" },
+    { "path": "./apps/web-avatar/tsconfig.node.json" },
+    { "path": "./apps/dashboard/tsconfig.app.json" },
+    { "path": "./apps/dashboard/tsconfig.node.json" }
+  ]
+}

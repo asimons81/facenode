@@ -1,0 +1,32 @@
+node_modules/
+dist/
+dist-node/
+.cache/
+*.tsbuildinfo
+*.js.map
+*.d.ts.map
+
+# Vite
+*.local
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyc
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*

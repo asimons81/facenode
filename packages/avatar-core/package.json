@@ -1,0 +1,32 @@
+{
+  "name": "@facenode/avatar-core",
+  "version": "0.2.0",
+  "description": "State machine, Zod event schemas, animation controller interface, and shared config for FaceNode",
+  "license": "MIT",
+  "homepage": "https://github.com/asimons81/facenode",
+  "repository": { "type": "git", "url": "https://github.com/asimons81/facenode.git", "directory": "packages/avatar-core" },
+  "keywords": ["facenode", "avatar", "ai-agent", "state-machine", "zod", "websocket"],
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "zod": "^3.23.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "vitest": "^1.6.0"
+  }
+}
