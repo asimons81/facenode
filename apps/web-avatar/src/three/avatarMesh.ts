@@ -34,8 +34,13 @@ export interface AvatarMesh {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const EYE_COLOR = new THREE.Color(0x111111);
+const SCLERA_COLOR = new THREE.Color(0xe7f1ef);
+const IRIS_COLOR = new THREE.Color(0x4fb7a0);
+const PUPIL_COLOR = new THREE.Color(0x091215);
+const BROW_COLOR = new THREE.Color(0x231915);
+const HAIR_COLOR = new THREE.Color(0x2a1d18);
 const MOUTH_COLOR = new THREE.Color(0x200c0a);
+const CONTOUR_COLOR = new THREE.Color(0xa56f53);
 
 // Mouth openness values per OVR viseme (0 = closed, 1 = fully open)
 const VISEME_OPENNESS: Record<string, number> = {
@@ -49,31 +54,45 @@ function lambert(color: THREE.Color): THREE.MeshLambertMaterial {
   return new THREE.MeshLambertMaterial({ color });
 }
 
+type BlinkProxy = { scale: { y: number } };
+
+type EyeRig = {
+  root: THREE.Group;
+  sclera: THREE.Mesh;
+  iris: THREE.Mesh;
+  pupil: THREE.Mesh;
+  catchlight: THREE.Mesh;
+  upperLid: THREE.Mesh;
+  upperLidRidge: THREE.Mesh;
+  lowerLidShadow: THREE.Mesh;
+};
+
 // ── ProceduralAvatarMesh ──────────────────────────────────────────────────────
 
 /**
  * Procedural placeholder avatar head built from Three.js primitives.
  *
  * Geometry:
- *   - Head:  SphereGeometry scaled into a slightly oval shape
- *   - Neck:  CylinderGeometry
- *   - Eyes:  two small dark spheres (blink via scale.y)
+ *   - Head: stylized sphere with a slightly refined jaw and face profile
+ *   - Neck: cylinder
+ *   - Eyes: layered eye groups (sclera / iris / pupil) that still blink via scale.y
+ *   - Face: brows, nose, ears, and a simple hair shell
  *   - Mouth: flat ellipse with a morph target (closed → open)
  */
 export class ProceduralAvatarMesh implements AvatarMesh {
   readonly group: THREE.Group;
   readonly headGroup: THREE.Group;
-  readonly eyeL: THREE.Mesh;
-  readonly eyeR: THREE.Mesh;
+  readonly eyeL: BlinkProxy;
+  readonly eyeR: BlinkProxy;
 
   private readonly headMesh: THREE.Mesh;
   private readonly neckMesh: THREE.Mesh;
   private readonly mouthMesh: THREE.Mesh;
-  private readonly eyeGeometry: THREE.SphereGeometry;
-  private readonly headMaterial: THREE.MeshLambertMaterial;
-  private readonly neckMaterial: THREE.MeshLambertMaterial;
-  private readonly eyeMaterial: THREE.MeshLambertMaterial;
+  private readonly skinMaterial: THREE.MeshLambertMaterial;
+  private readonly contourMaterial: THREE.MeshLambertMaterial;
   private readonly skinColor = new THREE.Color(0xc8956a);
+  private readonly eyeRigL: EyeRig;
+  private readonly eyeRigR: EyeRig;
 
   // Accumulated viseme openness between applyVisemeFrame() calls
   private visemeOpenness = 0;
@@ -84,32 +103,286 @@ export class ProceduralAvatarMesh implements AvatarMesh {
     this.group.add(this.headGroup);
 
     // Head
-    this.headMaterial = lambert(this.skinColor.clone());
-    const headGeo = new THREE.SphereGeometry(0.5, 32, 24);
-    this.headMesh = new THREE.Mesh(headGeo, this.headMaterial);
-    this.headMesh.scale.set(1, 1.12, 0.92);
+    this.skinMaterial = lambert(this.skinColor.clone());
+    this.contourMaterial = lambert(CONTOUR_COLOR.clone());
+    this.contourMaterial.color.copy(this.skinColor).multiplyScalar(0.84);
+    const headGeo = this.buildHeadGeometry();
+    this.headMesh = new THREE.Mesh(headGeo, this.skinMaterial);
+    this.headMesh.name = 'head';
     this.headGroup.add(this.headMesh);
 
     // Neck
     const neckGeo = new THREE.CylinderGeometry(0.17, 0.21, 0.42, 16);
-    this.neckMaterial = lambert(this.skinColor.clone());
-    this.neckMesh = new THREE.Mesh(neckGeo, this.neckMaterial);
+    this.neckMesh = new THREE.Mesh(neckGeo, this.skinMaterial);
+    this.neckMesh.name = 'neck';
     this.neckMesh.position.set(0, -0.64, 0);
     this.group.add(this.neckMesh);
 
     // Eyes
-    this.eyeGeometry = new THREE.SphereGeometry(0.07, 12, 8);
-    this.eyeMaterial = lambert(EYE_COLOR.clone());
-    this.eyeL = new THREE.Mesh(this.eyeGeometry, this.eyeMaterial);
-    this.eyeL.position.set(-0.18, 0.14, 0.44);
-    this.eyeR = new THREE.Mesh(this.eyeGeometry, this.eyeMaterial);
-    this.eyeR.position.set(0.18, 0.14, 0.44);
-    this.headGroup.add(this.eyeL, this.eyeR);
+    this.eyeRigL = this.buildEye('eyeL', -0.182);
+    this.eyeRigR = this.buildEye('eyeR', 0.182);
+    this.headGroup.add(this.eyeRigL.root, this.eyeRigR.root);
+    this.eyeL = this.createBlinkProxy(this.eyeRigL);
+    this.eyeR = this.createBlinkProxy(this.eyeRigR);
+
+    // Brows / nose / ears / hair
+    this.headGroup.add(
+      this.buildBrow('browL', -0.182, 0.292, 0.452, -0.16),
+      this.buildBrow('browR', 0.182, 0.292, 0.452, 0.16),
+      this.buildNose(),
+      this.buildEar('earL', -0.49),
+      this.buildEar('earR', 0.49),
+      this.buildContour('under-browL', -0.182, 0.225, 0.41, 0.16, 0.06, 0.07),
+      this.buildContour('under-browR', 0.182, 0.225, 0.41, 0.16, 0.06, 0.07),
+      this.buildContour('philtrum', 0, -0.105, 0.45, 0.055, 0.095, 0.03),
+      this.buildHair(),
+    );
 
     // Mouth
     this.mouthMesh = this.buildMouth();
-    this.mouthMesh.position.set(0, -0.18, 0.47);
+    this.mouthMesh.name = 'mouth';
+    this.mouthMesh.position.set(0, -0.205, 0.476);
     this.headGroup.add(this.mouthMesh);
+  }
+
+  private buildHeadGeometry(): THREE.SphereGeometry {
+    const geo = new THREE.SphereGeometry(0.5, 40, 28);
+    const pos = geo.attributes['position'] as THREE.BufferAttribute;
+
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const z = pos.getZ(i);
+      const yNorm = y / 0.5;
+      const jawBlend = THREE.MathUtils.clamp((0.1 - yNorm) / 1.1, 0, 1);
+      const cheekBlend = THREE.MathUtils.clamp(1 - Math.abs(yNorm - 0.05) * 1.4, 0, 1);
+
+      pos.setXYZ(
+        i,
+        x * (0.95 - jawBlend * 0.14 + cheekBlend * 0.03),
+        y * 1.12,
+        z * (0.9 + cheekBlend * 0.08),
+      );
+    }
+
+    pos.needsUpdate = true;
+    geo.computeVertexNormals();
+    geo.computeBoundingSphere();
+    return geo;
+  }
+
+  private buildEye(name: string, x: number): EyeRig {
+    const eyeGroup = new THREE.Group();
+    eyeGroup.name = name;
+    eyeGroup.position.set(x, 0.15, 0.398);
+
+    const socket = new THREE.Mesh(
+      new THREE.SphereGeometry(0.104, 18, 12),
+      this.contourMaterial,
+    );
+    socket.name = `${name}-socket`;
+    socket.scale.set(1.02, 0.78, 0.32);
+    socket.position.set(0, 0.01, 0.012);
+
+    const sclera = new THREE.Mesh(
+      new THREE.SphereGeometry(0.087, 18, 12),
+      lambert(SCLERA_COLOR.clone()),
+    );
+    sclera.name = `${name}-sclera`;
+    sclera.scale.set(1.02, 0.82, 0.48);
+    sclera.position.z = 0.04;
+
+    const iris = new THREE.Mesh(
+      new THREE.CircleGeometry(0.034, 20),
+      lambert(IRIS_COLOR.clone()),
+    );
+    iris.name = `${name}-iris`;
+    iris.position.z = 0.092;
+
+    const pupil = new THREE.Mesh(
+      new THREE.CircleGeometry(0.015, 16),
+      lambert(PUPIL_COLOR.clone()),
+    );
+    pupil.name = `${name}-pupil`;
+    pupil.position.z = 0.096;
+
+    const catchlight = new THREE.Mesh(
+      new THREE.CircleGeometry(0.006, 12),
+      lambert(SCLERA_COLOR.clone()),
+    );
+    catchlight.name = `${name}-catchlight`;
+    catchlight.position.set(0.012, 0.012, 0.1);
+
+    const upperLid = new THREE.Mesh(
+      new THREE.SphereGeometry(0.096, 18, 12),
+      this.skinMaterial,
+    );
+    upperLid.name = `${name}-upperLid`;
+    upperLid.scale.set(1.04, 0.42, 0.22);
+    upperLid.position.set(0, 0.058, 0.075);
+
+    const upperLidRidge = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.01, 0.012, 0.15, 12),
+      this.contourMaterial,
+    );
+    upperLidRidge.name = `${name}-upperLidRidge`;
+    upperLidRidge.rotation.z = Math.PI / 2;
+    upperLidRidge.rotation.x = -0.16;
+    upperLidRidge.position.set(0, 0.086, 0.062);
+    upperLidRidge.scale.z = 0.72;
+
+    const lowerLidShadow = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.007, 0.009, 0.118, 10),
+      this.contourMaterial,
+    );
+    lowerLidShadow.name = `${name}-lowerLidShadow`;
+    lowerLidShadow.rotation.z = Math.PI / 2;
+    lowerLidShadow.rotation.x = -0.1;
+    lowerLidShadow.position.set(0, -0.058, 0.055);
+    lowerLidShadow.scale.z = 0.66;
+
+    eyeGroup.add(socket, sclera, iris, pupil, catchlight, upperLid, upperLidRidge, lowerLidShadow);
+    this.applyBlinkToEye({
+      root: eyeGroup,
+      sclera,
+      iris,
+      pupil,
+      catchlight,
+      upperLid,
+      upperLidRidge,
+      lowerLidShadow,
+    }, 1);
+    return {
+      root: eyeGroup,
+      sclera,
+      iris,
+      pupil,
+      catchlight,
+      upperLid,
+      upperLidRidge,
+      lowerLidShadow,
+    };
+  }
+
+  private createBlinkProxy(eye: EyeRig): BlinkProxy {
+    let openness = 1;
+    const self = this;
+    return {
+      scale: {
+        get y(): number {
+          return openness;
+        },
+        set y(value: number) {
+          openness = THREE.MathUtils.clamp(value, 0, 1);
+          self.applyBlinkToEye(eye, openness);
+        },
+      },
+    };
+  }
+
+  private applyBlinkToEye(eye: EyeRig, openness: number): void {
+    const closure = 1 - openness;
+    eye.sclera.scale.y = 0.22 + openness * 0.6;
+    eye.iris.scale.y = 0.72 + openness * 0.28;
+    eye.pupil.scale.y = 0.72 + openness * 0.28;
+    eye.catchlight.visible = openness > 0.12;
+    eye.iris.position.y = -closure * 0.01;
+    eye.pupil.position.y = -closure * 0.012;
+    eye.catchlight.position.y = 0.012 - closure * 0.014;
+    eye.upperLid.position.y = 0.058 - closure * 0.074;
+    eye.upperLid.scale.y = 0.42 + closure * 0.26;
+    eye.upperLidRidge.position.y = 0.086 - closure * 0.043;
+    eye.lowerLidShadow.position.y = -0.058 + closure * 0.01;
+  }
+
+  private buildBrow(name: string, x: number, y: number, z: number, roll: number): THREE.Mesh {
+    const brow = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.018, 0.024, 0.17, 10),
+      lambert(BROW_COLOR.clone()),
+    );
+    brow.name = name;
+    brow.position.set(x, y, z);
+    brow.rotation.z = Math.PI / 2 + roll;
+    brow.rotation.x = -0.18;
+    brow.scale.z = 0.8;
+    return brow;
+  }
+
+  private buildNose(): THREE.Mesh {
+    const nose = new THREE.Mesh(
+      new THREE.SphereGeometry(0.09, 16, 12),
+      this.skinMaterial,
+    );
+    nose.name = 'nose';
+    nose.position.set(0, -0.015, 0.462);
+    nose.scale.set(0.31, 0.7, 0.26);
+    return nose;
+  }
+
+  private buildEar(name: string, x: number): THREE.Mesh {
+    const ear = new THREE.Mesh(
+      new THREE.SphereGeometry(0.094, 16, 12),
+      this.skinMaterial,
+    );
+    ear.name = name;
+    ear.position.set(x, 0.03, 0.015);
+    ear.scale.set(0.42, 0.76, 0.28);
+    return ear;
+  }
+
+  private buildHair(): THREE.Group {
+    const hairGroup = new THREE.Group();
+    hairGroup.name = 'hair';
+
+    const shell = new THREE.Mesh(
+      new THREE.SphereGeometry(0.5, 32, 22, 0, Math.PI * 2, 0, Math.PI * 0.48),
+      lambert(HAIR_COLOR.clone()),
+    );
+    shell.name = 'hair-shell';
+    shell.position.set(0, 0.18, -0.055);
+    shell.scale.set(0.98, 0.98, 0.9);
+
+    const fringe = new THREE.Mesh(
+      new THREE.BoxGeometry(0.21, 0.055, 0.1),
+      lambert(HAIR_COLOR.clone()),
+    );
+    fringe.name = 'hair-fringe';
+    fringe.position.set(0, 0.27, 0.16);
+    fringe.rotation.x = -0.06;
+
+    const sideL = new THREE.Mesh(
+      new THREE.SphereGeometry(0.13, 14, 10),
+      lambert(HAIR_COLOR.clone()),
+    );
+    sideL.name = 'hair-sideL';
+    sideL.position.set(-0.34, 0.16, 0.03);
+    sideL.scale.set(0.48, 0.82, 0.42);
+
+    const sideR = sideL.clone();
+    sideR.name = 'hair-sideR';
+    sideR.position.x *= -1;
+
+    hairGroup.add(shell, fringe, sideL, sideR);
+    return hairGroup;
+  }
+
+  private buildContour(
+    name: string,
+    x: number,
+    y: number,
+    z: number,
+    sx: number,
+    sy: number,
+    sz: number,
+  ): THREE.Mesh {
+    const contour = new THREE.Mesh(
+      new THREE.SphereGeometry(0.1, 14, 10),
+      this.contourMaterial,
+    );
+    contour.name = name;
+    contour.position.set(x, y, z);
+    contour.scale.set(sx, sy, sz);
+    return contour;
   }
 
   private buildMouth(): THREE.Mesh {
@@ -164,27 +437,41 @@ export class ProceduralAvatarMesh implements AvatarMesh {
 
   setSkinColor(hex: string): void {
     this.skinColor.set(hex);
-    this.headMaterial.color.copy(this.skinColor);
-    this.neckMaterial.color.copy(this.skinColor);
+    this.skinMaterial.color.copy(this.skinColor);
+    this.contourMaterial.color.copy(this.skinColor).multiplyScalar(0.84);
   }
 
   setHeadColor(color: THREE.ColorRepresentation): void {
-    this.headMaterial.color.set(color);
+    this.skinMaterial.color.set(color);
+    this.contourMaterial.color.set(color).multiplyScalar(0.84);
   }
 
   resetHeadColor(): void {
-    this.headMaterial.color.copy(this.skinColor);
+    this.skinMaterial.color.copy(this.skinColor);
+    this.contourMaterial.color.copy(this.skinColor).multiplyScalar(0.84);
   }
 
   dispose(): void {
-    this.headMesh.geometry.dispose();
-    this.neckMesh.geometry.dispose();
-    this.mouthMesh.geometry.dispose();
-    (this.mouthMesh.material as THREE.Material).dispose();
-    this.eyeGeometry.dispose();
-    this.headMaterial.dispose();
-    this.neckMaterial.dispose();
-    this.eyeMaterial.dispose();
+    const geometries = new Set<THREE.BufferGeometry>();
+    const materials = new Set<THREE.Material>();
+
+    this.group.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      geometries.add(obj.geometry);
+      if (Array.isArray(obj.material)) {
+        obj.material.forEach((material) => materials.add(material));
+      } else {
+        materials.add(obj.material);
+      }
+    });
+
+    for (const geometry of geometries) {
+      geometry.dispose();
+    }
+
+    for (const material of materials) {
+      material.dispose();
+    }
   }
 }
 
