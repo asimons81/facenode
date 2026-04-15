@@ -1,5 +1,15 @@
 export { AvatarEventSchema } from './events.js';
 export type { AvatarEvent } from './events.js';
+export {
+  RUNTIME_EVENT_VERSION,
+  RuntimeEventEnvelopeSchema,
+  AvatarEventPayloadSchema,
+  createRuntimeEventEnvelope,
+  extractAvatarEvent,
+  isRuntimeEventEnvelope,
+  parseAvatarEventPayload,
+} from './events.js';
+export type { RuntimeEventEnvelope, AvatarEventPayload } from './events.js';
 
 export { AvatarConfigSchema, defaultConfig } from './config.js';
 export type { AvatarConfig } from './config.js';

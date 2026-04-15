@@ -29,6 +29,10 @@ class FakeWebSocket {
   emitClose(): void {
     this.onclose?.();
   }
+
+  emitMessage(data: unknown): void {
+    this.onmessage?.({ data: JSON.stringify(data) });
+  }
 }
 
 describe('HermesAdapterClient disconnect lifecycle', () => {
@@ -118,5 +122,41 @@ describe('HermesAdapterClient disconnect lifecycle', () => {
     expect(FakeWebSocket.instances).toHaveLength(2);
     expect(optionStatuses).toEqual(listenerStatuses);
     expect(optionStatuses).toEqual(['connecting', 'connected', 'connecting', 'connected']);
+  });
+
+  it('dispatches raw AvatarEvent payloads unchanged', () => {
+    const controller = { dispatch: vi.fn() };
+    const client = new HermesAdapterClient({
+      url: 'ws://localhost:3456',
+      controller,
+    });
+
+    client.connect();
+    const ws = FakeWebSocket.instances[0]!;
+    ws.emitOpen();
+    ws.emitMessage({ type: 'thinking_start' });
+
+    expect(controller.dispatch).toHaveBeenCalledWith({ type: 'thinking_start' });
+  });
+
+  it('unwraps runtime envelope payloads before dispatching to the controller', () => {
+    const controller = { dispatch: vi.fn() };
+    const client = new HermesAdapterClient({
+      url: 'ws://localhost:3456',
+      controller,
+    });
+
+    client.connect();
+    const ws = FakeWebSocket.instances[0]!;
+    ws.emitOpen();
+    ws.emitMessage({
+      version: 1,
+      source: 'hermes-adapter',
+      sequence: 1,
+      timestamp: 1234,
+      event: { type: 'speech_end' },
+    });
+
+    expect(controller.dispatch).toHaveBeenCalledWith({ type: 'speech_end' });
   });
 });

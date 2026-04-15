@@ -1,8 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AvatarStateMachine } from './stateMachine.js';
 import { reduceEvent } from './eventReducer.js';
-import { AvatarEventSchema } from './events.js';
-import type { AvatarEvent, AvatarState } from './index.js';
+import {
+  AvatarEventSchema,
+  RuntimeEventEnvelopeSchema,
+  createRuntimeEventEnvelope,
+  extractAvatarEvent,
+  parseAvatarEventPayload,
+} from './events.js';
+import type { AvatarEvent, AvatarState, AvatarEventPayload } from './index.js';
 
 // ---------------------------------------------------------------------------
 // AvatarEventSchema
@@ -72,6 +78,63 @@ describe('AvatarEventSchema', () => {
 
   it('rejects unknown event types', () => {
     expect(() => AvatarEventSchema.parse({ type: 'unknown_event' })).toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RuntimeEventEnvelopeSchema
+// ---------------------------------------------------------------------------
+
+describe('RuntimeEventEnvelopeSchema', () => {
+  it('parses a valid runtime envelope with thin metadata', () => {
+    const payload = createRuntimeEventEnvelope(
+      { type: 'speech_chunk', text: 'hello', amplitude: 0.5 },
+      {
+        source: 'hermes-adapter',
+        sequence: 3,
+        timestamp: 1234,
+      },
+    );
+
+    expect(RuntimeEventEnvelopeSchema.parse(payload)).toEqual(payload);
+  });
+
+  it('allows optional metadata to be absent', () => {
+    expect(() =>
+      RuntimeEventEnvelopeSchema.parse({
+        version: 1,
+        source: 'hermes-adapter',
+        sequence: 1,
+        timestamp: 1234,
+        event: { type: 'connected' },
+      }),
+    ).not.toThrow();
+  });
+
+  it('rejects envelopes missing required runtime-assigned metadata', () => {
+    expect(() =>
+      RuntimeEventEnvelopeSchema.parse({
+        version: 1,
+        source: 'hermes-adapter',
+        timestamp: 1234,
+        event: { type: 'connected' },
+      }),
+    ).toThrow();
+  });
+
+  it('parses both raw events and envelopes as AvatarEventPayload', () => {
+    const raw: AvatarEventPayload = { type: 'connected' };
+    const envelope: AvatarEventPayload = {
+      version: 1,
+      source: 'hermes-adapter',
+      sequence: 2,
+      timestamp: 1234,
+      event: { type: 'connected' },
+    };
+
+    expect(parseAvatarEventPayload(raw)).toEqual(raw);
+    expect(parseAvatarEventPayload(envelope)).toEqual(envelope);
+    expect(extractAvatarEvent(envelope)).toEqual({ type: 'connected' });
   });
 });
 

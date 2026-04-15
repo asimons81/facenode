@@ -62,6 +62,10 @@ const mocks = vi.hoisted(() => {
   class MockWebSocket extends SimpleEmitter {
     static instances: MockWebSocket[] = [];
     static failConnect = false;
+    static OPEN = 1;
+
+    public readonly sentPayloads: string[] = [];
+    public readyState = MockWebSocket.OPEN;
 
     constructor(public readonly url: string) {
       super();
@@ -80,7 +84,9 @@ const mocks = vi.hoisted(() => {
       queueMicrotask(() => this.emit('close'));
     }
 
-    send(_payload: string): void {}
+    send(payload: string): void {
+      this.sentPayloads.push(payload);
+    }
   }
 
   return { MockWebSocketServer, MockWebSocket };
@@ -92,6 +98,7 @@ vi.mock('ws', () => ({
 }));
 
 import { HermesAdapterServer } from '../src/HermesAdapterServer.js';
+import { parseIncomingPayload } from '../src/HermesAdapterServer.js';
 
 describe('HermesAdapterServer lifecycle', () => {
   beforeEach(() => {
@@ -131,5 +138,32 @@ describe('HermesAdapterServer lifecycle', () => {
     vi.runOnlyPendingTimers();
 
     expect(connectSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves optional envelope metadata across parse and broadcast', async () => {
+    const server = new HermesAdapterServer({ port: 9876 });
+    await server.start();
+
+    const wss = mocks.MockWebSocketServer.instances[0]!;
+    const client = new mocks.MockWebSocket('ws://client');
+    wss.emit('connection', client);
+
+    const incoming = {
+      version: 1,
+      source: 'upstream-hermes',
+      sequence: 9,
+      timestamp: 1234,
+      sessionId: 'session-123',
+      utteranceId: 'utterance-456',
+      event: { type: 'connected' as const },
+    };
+
+    const parsed = parseIncomingPayload(incoming);
+    expect(parsed).toEqual(incoming);
+
+    server.broadcast(parsed!);
+
+    expect(client.sentPayloads).toHaveLength(1);
+    expect(JSON.parse(client.sentPayloads[0]!)).toEqual(incoming);
   });
 });

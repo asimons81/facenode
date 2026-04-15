@@ -29,3 +29,62 @@ export const AvatarEventSchema = z.discriminatedUnion('type', [
 ]);
 
 export type AvatarEvent = z.infer<typeof AvatarEventSchema>;
+
+export const RUNTIME_EVENT_VERSION = 1 as const;
+
+export const RuntimeEventEnvelopeSchema = z.object({
+  version: z.literal(RUNTIME_EVENT_VERSION),
+  /** Bridge/runtime identity that authored this envelope. */
+  source: z.string().min(1),
+  sequence: z.number().int().nonnegative(),
+  timestamp: z.number(),
+  sessionId: z.string().min(1).optional(),
+  utteranceId: z.string().min(1).optional(),
+  event: AvatarEventSchema,
+});
+
+export type RuntimeEventEnvelope = z.infer<typeof RuntimeEventEnvelopeSchema>;
+
+export const AvatarEventPayloadSchema = z.union([
+  AvatarEventSchema,
+  RuntimeEventEnvelopeSchema,
+]);
+
+export type AvatarEventPayload = z.infer<typeof AvatarEventPayloadSchema>;
+
+export function createRuntimeEventEnvelope(
+  event: AvatarEvent,
+  metadata: {
+    /** Bridge/runtime identity that is wrapping this payload. */
+    source: string;
+    sequence: number;
+    timestamp?: number;
+    sessionId?: string;
+    utteranceId?: string;
+  },
+): RuntimeEventEnvelope {
+  return RuntimeEventEnvelopeSchema.parse({
+    version: RUNTIME_EVENT_VERSION,
+    event,
+    source: metadata.source,
+    sequence: metadata.sequence,
+    timestamp: metadata.timestamp ?? Date.now(),
+    sessionId: metadata.sessionId,
+    utteranceId: metadata.utteranceId,
+  });
+}
+
+export function extractAvatarEvent(payload: AvatarEventPayload): AvatarEvent {
+  return 'event' in payload ? payload.event : payload;
+}
+
+export function isRuntimeEventEnvelope(
+  payload: AvatarEventPayload,
+): payload is RuntimeEventEnvelope {
+  return 'version' in payload;
+}
+
+export function parseAvatarEventPayload(raw: unknown): AvatarEventPayload | null {
+  const result = AvatarEventPayloadSchema.safeParse(raw);
+  return result.success ? result.data : null;
+}

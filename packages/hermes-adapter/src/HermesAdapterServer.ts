@@ -3,7 +3,8 @@
  *
  * Creates a WebSocket server that avatar clients connect to.
  * Optionally connects upstream to a real Hermes WebSocket endpoint,
- * translates Hermes-format payloads → AvatarEvents, and re-broadcasts them.
+ * translates Hermes-format payloads → AvatarEvents, and re-broadcasts them as
+ * either raw events or runtime envelopes.
  *
  * If hermesWsUrl is omitted the server is broadcast-only; events can be
  * injected programmatically via broadcast().
@@ -30,18 +31,33 @@
  *
  * Unrecognised events are silently dropped.
  *
- * As a fallback, if the payload already matches AvatarEventSchema directly
- * (e.g. from MockHermesEmitter in non-hermesMode), it is forwarded as-is.
+ * As a fallback, if the payload already matches either AvatarEventSchema or the
+ * runtime envelope schema (e.g. from MockHermesEmitter or another runtime-aware
+ * producer), it is forwarded as-is so envelope metadata stays intact.
  */
 import { WebSocketServer, WebSocket } from 'ws';
-import { AvatarEventSchema } from '@facenode/avatar-core';
-import type { AvatarEvent, Viseme } from '@facenode/avatar-core';
+import {
+  AvatarEventSchema,
+  createRuntimeEventEnvelope,
+  isRuntimeEventEnvelope,
+  parseAvatarEventPayload,
+} from '@facenode/avatar-core';
+import type {
+  AvatarEvent,
+  AvatarEventPayload,
+  RuntimeEventEnvelope,
+  Viseme,
+} from '@facenode/avatar-core';
 
 export interface HermesAdapterServerOptions {
   /** Port the avatar clients connect to. */
   port: number;
   /** Upstream Hermes WebSocket URL (optional — omit for mock/test usage). */
   hermesWsUrl?: string;
+  /** When true, broadcast wrapped runtime envelopes instead of raw AvatarEvents. */
+  emitRuntimeEnvelope?: boolean;
+  /** Runtime-assigned source label used when `emitRuntimeEnvelope` is true. */
+  runtimeSource?: string;
 }
 
 // ── Hermes payload translator ─────────────────────────────────────────────────
@@ -129,15 +145,14 @@ function validateAvatarEvent(raw: unknown): AvatarEvent | null {
   return result.success ? result.data : null;
 }
 
-/** Try Hermes mapping first; if it yields nothing, fall back to AvatarEventSchema. */
-export function parseIncomingPayload(raw: unknown): AvatarEvent | null {
+/** Try Hermes mapping first; if it yields nothing, fall back to raw/enveloped runtime payload parsing. */
+export function parseIncomingPayload(raw: unknown): AvatarEventPayload | null {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
 
   const mapped = mapHermesPayload(raw as RawObject);
   if (mapped) return validateAvatarEvent(mapped);
 
-  // Fallback: treat payload as a raw AvatarEvent (e.g. mock without hermesMode)
-  return validateAvatarEvent(raw);
+  return parseAvatarEventPayload(raw);
 }
 
 // ── Reconnect constants ───────────────────────────────────────────────────────
@@ -151,6 +166,7 @@ export class HermesAdapterServer {
   private wss: WebSocketServer | null = null;
   private hermesWs: WebSocket | null = null;
   private readonly clients = new Set<WebSocket>();
+  private runtimeSequence = 0;
 
   // Hermes reconnect state
   private hermesRetryCount = 0;
@@ -210,19 +226,39 @@ export class HermesAdapterServer {
   }
 
   /**
-   * Broadcast a validated AvatarEvent JSON to all connected avatar clients.
+   * Broadcast a validated AvatarEvent or runtime envelope to all connected
+   * avatar clients. Raw events are wrapped only when configured; existing
+   * envelopes pass through unchanged so optional metadata is preserved.
    * Safe to call even if no clients are connected.
    */
-  broadcast(event: AvatarEvent): void {
-    const payload = JSON.stringify(event);
+  broadcast(payload: AvatarEventPayload): void {
+    const outgoing = JSON.stringify(this.serializeOutgoingPayload(payload));
     for (const client of this.clients) {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(payload);
+        client.send(outgoing);
       }
     }
   }
 
   // ── Private ─────────────────────────────────────────────────────────────────
+
+  private serializeOutgoingPayload(
+    payload: AvatarEventPayload,
+  ): AvatarEvent | RuntimeEventEnvelope {
+    if (isRuntimeEventEnvelope(payload)) {
+      return payload;
+    }
+
+    if (!this.options.emitRuntimeEnvelope) {
+      return payload;
+    }
+
+    this.runtimeSequence += 1;
+    return createRuntimeEventEnvelope(payload, {
+      source: this.options.runtimeSource ?? 'hermes-adapter',
+      sequence: this.runtimeSequence,
+    });
+  }
 
   private async connectToHermes(url: string): Promise<void> {
     const ws = new WebSocket(url);
@@ -232,9 +268,9 @@ export class HermesAdapterServer {
     ws.on('message', (data) => {
       try {
         const raw = JSON.parse(data.toString()) as unknown;
-        const event = parseIncomingPayload(raw);
-        if (event) {
-          this.broadcast(event);
+        const payload = parseIncomingPayload(raw);
+        if (payload) {
+          this.broadcast(payload);
         } else {
           console.warn('[HermesAdapterServer] Dropped unrecognised payload:', data.toString().slice(0, 200));
         }

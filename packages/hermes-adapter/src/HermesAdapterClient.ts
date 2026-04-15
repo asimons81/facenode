@@ -2,13 +2,14 @@
  * HermesAdapterClient — browser only.
  *
  * Connects to a HermesAdapterServer (or MockHermesEmitter) over a local
- * WebSocket, validates incoming payloads with AvatarEventSchema, and
- * dispatches them to an AvatarEventDispatcher (typically AvatarController).
+ * WebSocket, validates incoming payloads as either raw AvatarEvents or
+ * runtime envelopes, and dispatches only the inner AvatarEvent to an
+ * AvatarEventDispatcher (typically AvatarController).
  *
  * Auto-reconnect: exponential backoff starting at 1 s, max 5 attempts.
  * After exhausting retries, dispatches `{ type: 'error' }` to the controller.
  */
-import { AvatarEventSchema } from '@facenode/avatar-core';
+import { extractAvatarEvent, parseAvatarEventPayload } from '@facenode/avatar-core';
 import type { AvatarEventDispatcher } from '@facenode/avatar-sdk';
 
 export type WsStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
@@ -97,14 +98,13 @@ export class HermesAdapterClient {
     ws.onmessage = (msg: MessageEvent<unknown>) => {
       try {
         const raw = JSON.parse(msg.data as string) as unknown;
-        const result = AvatarEventSchema.safeParse(raw);
-        if (result.success) {
-          this.options.controller.dispatch(result.data);
+        const payload = parseAvatarEventPayload(raw);
+        if (payload) {
+          this.options.controller.dispatch(extractAvatarEvent(payload));
         } else {
-          const issue = result.error.issues[0];
           console.warn(
             '[HermesAdapterClient] Dropped invalid event:',
-            issue?.message ?? result.error.message,
+            'Payload did not match AvatarEvent or RuntimeEventEnvelope schema.',
           );
         }
       } catch (err) {
