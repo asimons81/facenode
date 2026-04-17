@@ -12,16 +12,17 @@
  *  - The loop repeats with an optional inter-cycle pause (loopInterval).
  *
  * hermesMode:
- *  - When false (default): broadcasts AvatarEvent JSON.
+ *  - When false (default): broadcasts Runtime Contract v1 envelopes.
  *    Use with HermesAdapterClient directly.
  *  - When true: broadcasts Hermes-native payload JSON.
  *    Use with HermesAdapterServer (hermesWsUrl pointing here) to test the full
  *    Hermes → HermesAdapterServer → HermesAdapterClient → AvatarController path.
  *
- * Run via: pnpm mock          (AvatarEvent mode)
+ * Run via: pnpm mock          (runtime-envelope mode)
  *          pnpm mock --hermes-mode  (Hermes payload mode)
  */
 import { WebSocketServer, WebSocket } from 'ws';
+import { createRuntimeEventEnvelope } from '@facenode/avatar-core';
 import type { AvatarEvent } from '@facenode/avatar-core';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -115,6 +116,7 @@ export class MockHermesEmitter {
   private readonly clients = new Set<WebSocket>();
   private abort: AbortController | null = null;
   private readonly hermesMode: boolean;
+  private runtimeSequence = 0;
 
   constructor(private readonly options: MockHermesEmitterOptions) {
     this.hermesMode = options.hermesMode ?? false;
@@ -130,7 +132,7 @@ export class MockHermesEmitter {
       if (this.hermesMode) {
         this.sendRaw(client, JSON.stringify({ event: 'ready' }));
       } else {
-        this.sendRaw(client, JSON.stringify({ type: 'connected' }));
+        this.sendRaw(client, JSON.stringify(this.toRuntimeEnvelope({ type: 'connected' })));
       }
 
       client.on('close', () => this.clients.delete(client));
@@ -142,7 +144,7 @@ export class MockHermesEmitter {
       this.wss!.once('error', reject);
     });
 
-    const modeLabel = this.hermesMode ? 'hermes-mode' : 'avatar-event mode';
+    const modeLabel = this.hermesMode ? 'hermes-mode' : 'runtime-envelope mode';
     console.log(`[MockHermesEmitter] Ready — ws://localhost:${this.options.port} (${modeLabel})`);
     console.log(
       `[MockHermesEmitter] Sequence: ${SEQUENCE.filter((s) => s.kind === 'event').length} events` +
@@ -183,7 +185,7 @@ export class MockHermesEmitter {
       if (!hermes) return; // skip if no mapping
       payload = JSON.stringify(hermes);
     } else {
-      payload = JSON.stringify(event);
+      payload = JSON.stringify(this.toRuntimeEnvelope(event));
     }
 
     const label =
@@ -219,6 +221,14 @@ export class MockHermesEmitter {
         resolve();
       }, ms);
       signal.addEventListener('abort', onAbort);
+    });
+  }
+
+  private toRuntimeEnvelope(event: AvatarEvent) {
+    this.runtimeSequence += 1;
+    return createRuntimeEventEnvelope(event, {
+      source: 'mock-hermes-emitter',
+      sequence: this.runtimeSequence,
     });
   }
 

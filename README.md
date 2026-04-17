@@ -42,7 +42,7 @@ pnpm --filter @facenode/dashboard dev
 ### Test the full Hermes translation path
 
 ```bash
-# Emit raw Hermes-format payloads instead of AvatarEvents
+# Emit raw Hermes-format payloads instead of runtime envelopes
 pnpm mock --hermes-mode
 
 # In a second terminal: start a HermesAdapterServer that translates them

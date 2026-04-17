@@ -26,7 +26,7 @@ When `hermesWsUrl` is set, `HermesAdapterServer` expects these Hermes-native JSO
 | `{ "event": "tts.viseme", "timestamp": 1234, "visemes": [...] }` | `viseme_frame` |
 | `{ "event": "error", "message": "..." }` | `error` |
 
-Unrecognised or malformed Hermes payloads are dropped with explicit reasons surfaced through runtime diagnostics. As a fallback, payloads that already match `AvatarEventSchema` directly are wrapped into Runtime Contract v1 envelopes (useful for the mock in non-hermes mode).
+Unrecognised or malformed Hermes payloads are dropped with explicit reasons surfaced through runtime diagnostics. Runtime-facing transport is envelope-only; bare `AvatarEvent` payloads are rejected.
 
 ## Install
 
@@ -44,7 +44,7 @@ import { HermesAdapterServer, MockHermesEmitter } from '@facenode/hermes-adapter
 ### Running the mock
 
 ```bash
-pnpm mock                  # AvatarEvent mode (connect clients directly)
+pnpm mock                  # Runtime envelope mode (connect clients directly)
 pnpm mock --hermes-mode    # Hermes payload mode (pair with HermesAdapterServer)
 PORT=9000 pnpm mock        # custom port
 ```

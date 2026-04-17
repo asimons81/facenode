@@ -50,11 +50,11 @@ Three.js scene               apps/web-avatar
 ```
 
 **MockHermesEmitter** (`packages/hermes-adapter`) can stand in for a live Hermes
-instance. With `hermesMode: false` (default) it emits legacy `AvatarEvent` JSON
-directly to HermesAdapterClient for quick local demos. With `hermesMode: true` it
-emits Hermes-format JSON and must be fronted by a HermesAdapterServer, which is the
-canonical Hermes-first runtime path and the point where Runtime Contract v1
-envelopes and diagnostics are assigned.
+instance. With `hermesMode: false` (default) it emits Runtime Contract v1
+envelopes directly to HermesAdapterClient for quick local demos. With
+`hermesMode: true` it emits Hermes-format JSON and must be fronted by a
+HermesAdapterServer, which is the canonical Hermes-first runtime path and the
+point where Runtime Contract v1 envelopes and diagnostics are assigned.
 
 ---
 

@@ -13,7 +13,7 @@ Step-by-step guide to running the full stack locally without a live Hermes insta
 
 ```bash
 pnpm mock
-# [MockHermesEmitter] Ready — ws://localhost:3456 (avatar-event mode)
+# [MockHermesEmitter] Ready — ws://localhost:3456 (runtime-envelope mode)
 ```
 
 The mock loops through: idle → listening → thinking → speaking (with viseme frames) → repeat.
@@ -36,14 +36,14 @@ Open http://localhost:5174. The dashboard connects automatically to `ws://localh
 
 ### 4. Test the full Hermes translation path
 
-This exercises `HermesAdapterServer` mapping Hermes-format payloads to AvatarEvents:
+This exercises `HermesAdapterServer` mapping Hermes-format payloads to Runtime Contract v1 envelopes:
 
 ```bash
 # Terminal 1: mock in Hermes payload mode
 pnpm mock --hermes-mode
 # [MockHermesEmitter] Ready — ws://localhost:3456 (hermes-mode)
 
-# Terminal 2: bridge (translates Hermes → AvatarEvent, serves on :3457)
+# Terminal 2: bridge (translates Hermes → runtime envelope, serves on :3457)
 node --input-type=module <<'EOF'
 import { HermesAdapterServer } from './packages/hermes-adapter/src/server.js';
 const s = new HermesAdapterServer({

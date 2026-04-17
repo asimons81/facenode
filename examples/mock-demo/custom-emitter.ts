@@ -5,10 +5,10 @@
  *
  * Run: npx tsx custom-emitter.ts
  */
-import { MockHermesEmitter } from '../../packages/hermes-adapter/src/MockHermesEmitter.js';
+import { createRuntimeEventEnvelope } from '@facenode/avatar-core';
 
 // MockHermesEmitter accepts a SEQUENCE of steps (event | wait) but those are
-// internal. For full control, subclass it or use HermesAdapterServer + broadcast():
+// internal. For full control, subclass it or use HermesAdapterServer + explicit runtime envelopes:
 
 import { HermesAdapterServer } from '../../packages/hermes-adapter/src/server.js';
 
@@ -23,10 +23,10 @@ console.log('[custom-emitter] Sending custom sequence in 2 seconds…');
 await sleep(2000);
 
 // Custom sequence: jump straight to speaking
-server.broadcast({ type: 'connected' });
+server.broadcast(runtimeEvent({ type: 'connected' }));
 await sleep(500);
 
-server.broadcast({ type: 'speech_start' });
+server.broadcast(runtimeEvent({ type: 'speech_start' }));
 await sleep(300);
 
 const lines = [
@@ -37,17 +37,27 @@ const lines = [
 ];
 
 for (const line of lines) {
-  server.broadcast({ type: 'speech_chunk', text: line.text, amplitude: line.amplitude });
+  server.broadcast(runtimeEvent({ type: 'speech_chunk', text: line.text, amplitude: line.amplitude }));
   await sleep(600);
 }
 
-server.broadcast({ type: 'speech_end' });
+server.broadcast(runtimeEvent({ type: 'speech_end' }));
 await sleep(2000);
 
-server.broadcast({ type: 'disconnected' });
+server.broadcast(runtimeEvent({ type: 'disconnected' }));
 await server.stop();
 console.log('[custom-emitter] Done.');
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+let runtimeSequence = 0;
+
+function runtimeEvent(event: Parameters<typeof createRuntimeEventEnvelope>[0]) {
+  runtimeSequence += 1;
+  return createRuntimeEventEnvelope(event, {
+    source: 'custom-emitter',
+    sequence: runtimeSequence,
+  });
 }

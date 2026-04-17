@@ -6,7 +6,9 @@ This package has no browser or Node.js-specific dependencies — it is safe to i
 
 ## What it does
 
-- **`AvatarEventSchema`** — Zod discriminated union validating all 11 event types (`connected`, `speech_chunk`, `viseme_frame`, etc.)
+- **`AvatarEventSchema`** — Zod discriminated union validating all 11 avatar lifecycle and lip-sync event types
+- **`RuntimeEventEnvelopeSchema`** — canonical Runtime Contract v1 envelope used on transport-facing paths
+- **`RuntimeDiagnosticsSchema`** — runtime health snapshot schema used alongside envelopes on transport-facing paths
 - **`AvatarStateMachine`** — typed state machine with `on(state, cb)` and `onChange(cb)` subscriptions
 - **`reduceEvent`** — pure function mapping `(state, event) → nextState`
 - **`AnimationController`** — interface for Three.js (or any renderer) to implement
@@ -22,7 +24,11 @@ pnpm add @facenode/avatar-core
 ## Usage
 
 ```ts
-import { AvatarStateMachine, AvatarEventSchema } from '@facenode/avatar-core';
+import {
+  AvatarStateMachine,
+  extractAvatarEvent,
+  parseRuntimeTransportMessage,
+} from '@facenode/avatar-core';
 
 const machine = new AvatarStateMachine();
 
@@ -31,9 +37,9 @@ machine.onChange((next, prev) => {
 });
 
 // Validate and dispatch an incoming WebSocket message
-const result = AvatarEventSchema.safeParse(JSON.parse(rawMessage));
-if (result.success) {
-  machine.transition(result.data);
+const message = parseRuntimeTransportMessage(JSON.parse(rawMessage));
+if (message && !('kind' in message)) {
+  machine.transition(extractAvatarEvent(message));
 }
 ```
 
