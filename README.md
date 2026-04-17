@@ -32,11 +32,11 @@ pnpm mock
 
 # 3. Start the avatar renderer (terminal 2)
 pnpm --filter @facenode/web-avatar dev
-# → http://localhost:5173
+# → http://localhost:5201
 
 # 4. Start the dashboard (terminal 3)
 pnpm --filter @facenode/dashboard dev
-# → http://localhost:5174
+# → http://localhost:5202
 ```
 
 ### Test the full Hermes translation path
