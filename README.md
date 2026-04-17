@@ -2,7 +2,7 @@
 
 Tired of talking to a faceless text box? FaceNode renders a 3D avatar that actually lip-syncs while your AI agent talks. It's like a coworker who only speaks when there's audio playing.
 
-![FaceNode Dashboard](docs/assets/facenode-v0.1.0-screenshot.png)
+![FaceNode Dashboard](docs/assets/facenode-dashboard-runtime.png)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-teal.svg)](LICENSE)
 

@@ -17,7 +17,7 @@
     }
   },
   "scripts": {
-    "dev": "vite --port 5173",
+    "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview --port 5173",
     "typecheck": "tsc --noEmit",
