@@ -29,6 +29,10 @@ pnpm install
 | `pnpm --filter <pkg> typecheck` | Typecheck a single package |
 | `pnpm --filter <pkg> test` | Test a single package |
 
+If a workspace package contains tests, it must define its own `test` script.
+Root `pnpm test` only runs package scripts, so missing scripts silently skip
+coverage.
+
 ## Commit convention
 
 This project uses [Conventional Commits](https://www.conventionalcommits.org/):

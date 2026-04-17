@@ -1,27 +1,112 @@
 # FaceNode Roadmap
 
-## v0.1.0 — Shipped ✅
+## Current reality
 
-- Monorepo scaffold (pnpm workspaces, TypeScript project references)
-- `avatar-core`: Zod event schema, state machine, `AnimationController` interface, `AvatarConfig` schema
-- `web-avatar`: Three.js scene, procedural avatar mesh, state animations, Layer 1 lip sync, React shell with captions
-- `hermes-adapter`: `HermesAdapterServer`, `HermesAdapterClient` (auto-reconnect), `MockHermesEmitter` (scripted loop)
-- Dashboard: three-column layout, all config controls, live avatar preview, event log, localStorage persistence
+FaceNode already has the right core shape:
 
-## v0.2.0 — Current 🚧
+- `avatar-core` defines the event/state contract and shared config
+- `hermes-adapter` translates Hermes payloads and handles transport
+- `web-avatar` renders and animates the avatar
+- `dashboard` proves the controller can be configured live
 
-- **Real Hermes wiring**: `HermesAdapterServer` translates Hermes-native JSON → `AvatarEvent` with exponential backoff reconnection
-- **glTF model support**: `GltfAvatarMesh` loads any `.glb`/`.gltf`; hot-swap via `setAvatarModel()`; fallback to procedural on error
-- **Layer 2 viseme pipeline**: OVR 15-viseme set, `applyVisemeFrame()`, 100 ms Layer 1 fallback, `viseme_frame` in mock sequence
-- **Dashboard model selector**: segmented control + URL input + load button in Appearance section
-- **OSS release polish**: README, ARCHITECTURE, CONTRIBUTING, ROADMAP, per-package READMEs, package.json metadata, examples
+The problem is not that the architecture is wrong. The problem is that the
+runtime contract is still too implicit, Hermes is not yet treated as the
+product-default runtime path, and the embeddable surface still lives inside an
+app package rather than a dedicated runtime package.
 
-## Future
+## Next major upgrade wave
 
-- **Additional adapters**: OpenAI Realtime API, ElevenLabs streaming, VAPI, LiveKit
-- **Cloud TTS integration**: detect `speech_start.audioUrl` and auto-connect the audio element for real amplitude
-- **Mobile dashboard**: responsive layout, touch-friendly controls
-- **Multi-avatar scenes**: `MultiAvatarController` managing N avatars with independent state machines
-- **Expression system**: Layer 3 — facial expression blendshapes (happy, curious, confused) driven by sentiment from the LLM
-- **WASM lip sync**: on-device phoneme extraction from audio PCM → `viseme_frame` without a server-side pipeline
-- **Streaming glTF**: LOD-aware progressive loading for large production avatars
+### Milestone 1: Runtime contract v1
+
+Goal: make the event contract stable, versioned, and testable before adding
+more breadth.
+
+Deliver:
+
+- Versioned runtime envelope for FaceNode events
+- Explicit Hermes-to-runtime mapping spec
+- Event/session/utterance correlation fields
+- Contract fixtures and compatibility tests
+- Runtime docs for producers and consumers
+
+Primary packages:
+
+- `packages/avatar-core`
+- `packages/hermes-adapter`
+- `ARCHITECTURE.md`
+- `README.md`
+
+### Milestone 2: Hermes-first runtime hardening
+
+Goal: make Hermes the reliable flagship integration path instead of one adapter
+among many.
+
+Deliver:
+
+- Hermes protocol surface clarified and documented
+- Better upstream lifecycle handling and observability
+- Stronger message validation, drop reasons, and reconnect semantics
+- Hermes integration fixtures covering realistic event sequences
+- Dashboard and renderer defaults tuned for Hermes-first usage
+
+Primary packages:
+
+- `packages/hermes-adapter`
+- `apps/dashboard`
+- `apps/web-avatar`
+
+### Milestone 3: Realism pass
+
+Goal: improve human realism through timing, audio, and expression behavior.
+
+Deliver:
+
+- Better utterance timing model
+- Smarter amplitude smoothing and hold/release behavior
+- Expression channel layered on top of state and visemes
+- Subtitle/caption timing cleanup
+- Regression tests for sync and expression blending
+
+Primary packages:
+
+- `packages/avatar-core`
+- `apps/web-avatar`
+- `apps/dashboard`
+
+### Milestone 4: Embeddable runtime surface
+
+Goal: make FaceNode easy to drop into another product without dragging the
+dashboard along.
+
+Deliver:
+
+- Dedicated embeddable web runtime package
+- Cleaner public API for mount / update / destroy / connect
+- Host configuration surface separated from internal demo controls
+- Reference embed example
+
+Primary packages:
+
+- new package extracted from `apps/web-avatar`
+- `apps/dashboard`
+- `examples/`
+
+## What should wait
+
+- Additional adapters beyond Hermes
+- Multi-avatar scenes
+- WASM phoneme extraction
+- Streaming glTF and large-scale asset delivery work
+
+Those are valid later bets, but none of them matter if the Hermes runtime
+contract is still squishy.
+
+## What should not be prioritized yet
+
+- Broad adapter matrix work
+- Native mobile experiences
+- Heavy cloud orchestration features
+- Deep avatar asset pipeline work
+
+FaceNode should first become the best way to render a Hermes-backed talking
+head reliably.
