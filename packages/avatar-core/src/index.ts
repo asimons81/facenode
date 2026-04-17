@@ -2,14 +2,31 @@ export { AvatarEventSchema } from './events.js';
 export type { AvatarEvent } from './events.js';
 export {
   RUNTIME_EVENT_VERSION,
+  RuntimeEnvelopeMetadataSchema,
   RuntimeEventEnvelopeSchema,
+  RuntimeDropReasonSchema,
+  RuntimeConnectionStateSchema,
+  RuntimeDiagnosticsSchema,
   AvatarEventPayloadSchema,
+  RuntimeTransportMessageSchema,
   createRuntimeEventEnvelope,
+  createRuntimeDiagnostics,
   extractAvatarEvent,
   isRuntimeEventEnvelope,
   parseAvatarEventPayload,
+  parseRuntimeTransportMessage,
+  validateAvatarEventPayload,
+  validateRuntimeTransportMessage,
 } from './events.js';
-export type { RuntimeEventEnvelope, AvatarEventPayload } from './events.js';
+export type {
+  RuntimeEventEnvelope,
+  RuntimeDropReason,
+  RuntimeConnectionState,
+  RuntimeDiagnostics,
+  AvatarEventPayload,
+  RuntimeTransportMessage,
+  PayloadValidationResult,
+} from './events.js';
 
 export { AvatarConfigSchema, defaultConfig } from './config.js';
 export type { AvatarConfig } from './config.js';

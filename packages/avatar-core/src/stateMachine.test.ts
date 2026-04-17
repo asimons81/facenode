@@ -4,9 +4,13 @@ import { reduceEvent } from './eventReducer.js';
 import {
   AvatarEventSchema,
   RuntimeEventEnvelopeSchema,
+  RuntimeDiagnosticsSchema,
   createRuntimeEventEnvelope,
+  createRuntimeDiagnostics,
   extractAvatarEvent,
   parseAvatarEventPayload,
+  parseRuntimeTransportMessage,
+  validateAvatarEventPayload,
 } from './events.js';
 import type { AvatarEvent, AvatarState, AvatarEventPayload } from './index.js';
 
@@ -134,7 +138,67 @@ describe('RuntimeEventEnvelopeSchema', () => {
 
     expect(parseAvatarEventPayload(raw)).toEqual(raw);
     expect(parseAvatarEventPayload(envelope)).toEqual(envelope);
+    expect(parseRuntimeTransportMessage(envelope)).toEqual(envelope);
     expect(extractAvatarEvent(envelope)).toEqual({ type: 'connected' });
+  });
+
+  it('returns explicit drop detail when a payload fails validation', () => {
+    expect(
+      validateAvatarEventPayload({
+        version: 1,
+        source: 'hermes-adapter',
+        sequence: 1,
+        timestamp: 1234,
+        event: { type: 'speech_chunk', amplitude: 4 },
+      }),
+    ).toEqual({
+      ok: false,
+      reason: 'invalid_runtime_payload',
+      detail: 'event.amplitude: Number must be less than or equal to 1',
+    });
+  });
+});
+
+describe('RuntimeDiagnosticsSchema', () => {
+  it('parses runtime diagnostics snapshots', () => {
+    const diagnostics = createRuntimeDiagnostics({
+      source: 'hermes-adapter',
+      connectionState: 'connected',
+      reconnectAttempts: 2,
+      droppedPayloadCount: 3,
+      lastDropReason: 'invalid_hermes_payload',
+      lastDropDetail: 'amplitude must be between 0 and 1',
+      sessionId: 'session-123',
+      utteranceId: 'utt-456',
+      lastAcceptedEvent: createRuntimeEventEnvelope(
+        { type: 'speech_end' },
+        {
+          source: 'hermes-adapter',
+          sequence: 9,
+          timestamp: 5000,
+          sessionId: 'session-123',
+          utteranceId: 'utt-456',
+        },
+      ),
+      updatedAt: 6000,
+    });
+
+    expect(RuntimeDiagnosticsSchema.parse(diagnostics)).toEqual(diagnostics);
+    expect(parseRuntimeTransportMessage(diagnostics)).toEqual(diagnostics);
+  });
+
+  it('requires diagnostics to use a known connection state and drop reason', () => {
+    expect(() =>
+      RuntimeDiagnosticsSchema.parse({
+        kind: 'runtime_diagnostics',
+        version: 1,
+        source: 'hermes-adapter',
+        updatedAt: 1234,
+        connectionState: 'online',
+        reconnectAttempts: 0,
+        droppedPayloadCount: 0,
+      }),
+    ).toThrow();
   });
 });
 

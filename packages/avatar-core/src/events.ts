@@ -32,18 +32,60 @@ export type AvatarEvent = z.infer<typeof AvatarEventSchema>;
 
 export const RUNTIME_EVENT_VERSION = 1 as const;
 
-export const RuntimeEventEnvelopeSchema = z.object({
+export const RuntimeEnvelopeMetadataSchema = z.object({
   version: z.literal(RUNTIME_EVENT_VERSION),
   /** Bridge/runtime identity that authored this envelope. */
   source: z.string().min(1),
   sequence: z.number().int().nonnegative(),
-  timestamp: z.number(),
+  timestamp: z.number().finite().nonnegative(),
   sessionId: z.string().min(1).optional(),
   utteranceId: z.string().min(1).optional(),
+});
+
+export const RuntimeEventEnvelopeSchema = z.object({
+  ...RuntimeEnvelopeMetadataSchema.shape,
   event: AvatarEventSchema,
 });
 
 export type RuntimeEventEnvelope = z.infer<typeof RuntimeEventEnvelopeSchema>;
+
+export const RuntimeDropReasonSchema = z.enum([
+  'invalid_json',
+  'invalid_runtime_payload',
+  'unknown_hermes_event',
+  'invalid_hermes_payload',
+  'out_of_order_runtime_event',
+]);
+
+export type RuntimeDropReason = z.infer<typeof RuntimeDropReasonSchema>;
+
+export const RuntimeConnectionStateSchema = z.enum([
+  'idle',
+  'connecting',
+  'connected',
+  'reconnecting',
+  'disconnected',
+  'error',
+]);
+
+export type RuntimeConnectionState = z.infer<typeof RuntimeConnectionStateSchema>;
+
+export const RuntimeDiagnosticsSchema = z.object({
+  kind: z.literal('runtime_diagnostics'),
+  version: z.literal(RUNTIME_EVENT_VERSION),
+  source: z.string().min(1),
+  updatedAt: z.number().finite().nonnegative(),
+  connectionState: RuntimeConnectionStateSchema,
+  reconnectAttempts: z.number().int().nonnegative(),
+  droppedPayloadCount: z.number().int().nonnegative(),
+  lastDropReason: RuntimeDropReasonSchema.optional(),
+  lastDropDetail: z.string().min(1).optional(),
+  lastAcceptedEvent: RuntimeEventEnvelopeSchema.optional(),
+  sessionId: z.string().min(1).optional(),
+  utteranceId: z.string().min(1).optional(),
+});
+
+export type RuntimeDiagnostics = z.infer<typeof RuntimeDiagnosticsSchema>;
 
 export const AvatarEventPayloadSchema = z.union([
   AvatarEventSchema,
@@ -51,6 +93,29 @@ export const AvatarEventPayloadSchema = z.union([
 ]);
 
 export type AvatarEventPayload = z.infer<typeof AvatarEventPayloadSchema>;
+
+export const RuntimeTransportMessageSchema = z.union([
+  RuntimeEventEnvelopeSchema,
+  RuntimeDiagnosticsSchema,
+  AvatarEventSchema,
+]);
+
+export type RuntimeTransportMessage = z.infer<typeof RuntimeTransportMessageSchema>;
+
+export interface PayloadValidationSuccess<T> {
+  ok: true;
+  value: T;
+}
+
+export interface PayloadValidationFailure {
+  ok: false;
+  reason: RuntimeDropReason;
+  detail: string;
+}
+
+export type PayloadValidationResult<T> =
+  | PayloadValidationSuccess<T>
+  | PayloadValidationFailure;
 
 export function createRuntimeEventEnvelope(
   event: AvatarEvent,
@@ -85,6 +150,67 @@ export function isRuntimeEventEnvelope(
 }
 
 export function parseAvatarEventPayload(raw: unknown): AvatarEventPayload | null {
-  const result = AvatarEventPayloadSchema.safeParse(raw);
+  const result = validateAvatarEventPayload(raw);
+  return result.ok ? result.value : null;
+}
+
+export function parseRuntimeTransportMessage(raw: unknown): RuntimeTransportMessage | null {
+  const result = RuntimeTransportMessageSchema.safeParse(raw);
   return result.success ? result.data : null;
+}
+
+export function validateAvatarEventPayload(raw: unknown): PayloadValidationResult<AvatarEventPayload> {
+  const result = AvatarEventPayloadSchema.safeParse(raw);
+  if (result.success) {
+    return {
+      ok: true,
+      value: result.data,
+    };
+  }
+
+  return {
+    ok: false,
+    reason: 'invalid_runtime_payload',
+    detail: formatZodError(result.error),
+  };
+}
+
+export function validateRuntimeTransportMessage(
+  raw: unknown,
+): PayloadValidationResult<RuntimeTransportMessage> {
+  const result = RuntimeTransportMessageSchema.safeParse(raw);
+  if (result.success) {
+    return {
+      ok: true,
+      value: result.data,
+    };
+  }
+
+  return {
+    ok: false,
+    reason: 'invalid_runtime_payload',
+    detail: formatZodError(result.error),
+  };
+}
+
+export function createRuntimeDiagnostics(
+  diagnostics: Omit<RuntimeDiagnostics, 'kind' | 'version' | 'updatedAt'> & {
+    updatedAt?: number;
+  },
+): RuntimeDiagnostics {
+  return RuntimeDiagnosticsSchema.parse({
+    kind: 'runtime_diagnostics',
+    version: RUNTIME_EVENT_VERSION,
+    updatedAt: diagnostics.updatedAt ?? Date.now(),
+    ...diagnostics,
+  });
+}
+
+function formatZodError(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => {
+      const path = issue.path.length > 0 ? issue.path.join('.') : 'payload';
+      return `${path}: ${issue.message}`;
+    })
+    .join('; ');
 }
