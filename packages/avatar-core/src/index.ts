@@ -7,15 +7,14 @@ export {
   RuntimeDropReasonSchema,
   RuntimeConnectionStateSchema,
   RuntimeDiagnosticsSchema,
-  AvatarEventPayloadSchema,
   RuntimeTransportMessageSchema,
   createRuntimeEventEnvelope,
   createRuntimeDiagnostics,
   extractAvatarEvent,
   isRuntimeEventEnvelope,
-  parseAvatarEventPayload,
+  parseRuntimeEventEnvelope,
   parseRuntimeTransportMessage,
-  validateAvatarEventPayload,
+  validateRuntimeEventEnvelope,
   validateRuntimeTransportMessage,
 } from './events.js';
 export type {
@@ -23,7 +22,6 @@ export type {
   RuntimeDropReason,
   RuntimeConnectionState,
   RuntimeDiagnostics,
-  AvatarEventPayload,
   RuntimeTransportMessage,
   PayloadValidationResult,
 } from './events.js';

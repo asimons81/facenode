@@ -8,11 +8,11 @@ import {
   createRuntimeEventEnvelope,
   createRuntimeDiagnostics,
   extractAvatarEvent,
-  parseAvatarEventPayload,
+  parseRuntimeEventEnvelope,
   parseRuntimeTransportMessage,
-  validateAvatarEventPayload,
+  validateRuntimeEventEnvelope,
 } from './events.js';
-import type { AvatarEvent, AvatarState, AvatarEventPayload } from './index.js';
+import type { AvatarEvent, AvatarState, RuntimeEventEnvelope } from './index.js';
 
 // ---------------------------------------------------------------------------
 // AvatarEventSchema
@@ -126,9 +126,8 @@ describe('RuntimeEventEnvelopeSchema', () => {
     ).toThrow();
   });
 
-  it('parses both raw events and envelopes as AvatarEventPayload', () => {
-    const raw: AvatarEventPayload = { type: 'connected' };
-    const envelope: AvatarEventPayload = {
+  it('parses runtime envelopes as the canonical event transport shape', () => {
+    const envelope: RuntimeEventEnvelope = {
       version: 1,
       source: 'hermes-adapter',
       sequence: 2,
@@ -136,15 +135,19 @@ describe('RuntimeEventEnvelopeSchema', () => {
       event: { type: 'connected' },
     };
 
-    expect(parseAvatarEventPayload(raw)).toEqual(raw);
-    expect(parseAvatarEventPayload(envelope)).toEqual(envelope);
+    expect(parseRuntimeEventEnvelope(envelope)).toEqual(envelope);
     expect(parseRuntimeTransportMessage(envelope)).toEqual(envelope);
     expect(extractAvatarEvent(envelope)).toEqual({ type: 'connected' });
   });
 
+  it('rejects bare AvatarEvent payloads at the runtime contract boundary', () => {
+    expect(parseRuntimeEventEnvelope({ type: 'connected' })).toBeNull();
+    expect(parseRuntimeTransportMessage({ type: 'connected' })).toBeNull();
+  });
+
   it('returns explicit drop detail when a payload fails validation', () => {
     expect(
-      validateAvatarEventPayload({
+      validateRuntimeEventEnvelope({
         version: 1,
         source: 'hermes-adapter',
         sequence: 1,
@@ -401,10 +404,12 @@ describe('AvatarStateMachine', () => {
   // --- Invalid / no-op transitions ---
 
   it('ignores invalid transitions and returns current state', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     machine.transition({ type: 'connected' }); // → idle
     // Can't go listening_end from idle
     expect(machine.transition({ type: 'listening_end' })).toBe('idle');
     expect(machine.current).toBe('idle');
+    warn.mockRestore();
   });
 
   it('speech_chunk never changes state', () => {
@@ -495,12 +500,14 @@ describe('AvatarStateMachine', () => {
   });
 
   it('onChange does not fire on no-op transitions', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     machine.transition({ type: 'connected' }); // → idle
     const cb = vi.fn();
     machine.onChange(cb);
     machine.transition({ type: 'speech_chunk', amplitude: 0.5 });
     machine.transition({ type: 'speech_end' }); // invalid from idle
     expect(cb).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it('onChange unsubscribe stops future calls', () => {

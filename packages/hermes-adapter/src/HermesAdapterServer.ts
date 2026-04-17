@@ -7,17 +7,14 @@
  * and re-broadcasts them alongside runtime diagnostics snapshots.
  *
  * If hermesWsUrl is omitted the server is broadcast-only; events can be
- * injected programmatically via broadcast().
+ * injected programmatically via explicit runtime envelopes.
  */
 import { WebSocketServer, WebSocket } from 'ws';
 import {
   createRuntimeDiagnostics,
   createRuntimeEventEnvelope,
-  isRuntimeEventEnvelope,
 } from '@facenode/avatar-core';
 import type {
-  AvatarEvent,
-  AvatarEventPayload,
   RuntimeConnectionState,
   RuntimeDiagnostics,
   RuntimeDropReason,
@@ -31,11 +28,6 @@ export interface HermesAdapterServerOptions {
   port: number;
   /** Upstream Hermes WebSocket URL (optional — omit for mock/test usage). */
   hermesWsUrl?: string;
-  /**
-   * When false, allow manual raw AvatarEvent broadcast for legacy/demo usage.
-   * Hermes-normalized traffic is always emitted as Runtime Contract v1 envelopes.
-   */
-  emitRuntimeEnvelope?: boolean;
   /** Runtime-assigned source label for envelopes and diagnostics. */
   runtimeSource?: string;
 }
@@ -153,14 +145,12 @@ export class HermesAdapterServer {
   }
 
   /**
-   * Broadcast a validated AvatarEvent or runtime envelope to all connected
-   * avatar clients. Raw events are wrapped by default so the runtime contract
-   * stays versioned end-to-end.
+   * Broadcast a validated runtime envelope to all connected avatar clients.
    */
-  broadcast(payload: AvatarEventPayload): void {
-    const outgoing = this.serializeOutgoingPayload(payload);
-    this.broadcastJson(outgoing);
-    this.recordAcceptedEnvelope(outgoing);
+  broadcast(envelope: RuntimeEventEnvelope): void {
+    this.runtimeSequence = Math.max(this.runtimeSequence, envelope.sequence);
+    this.broadcastJson(envelope);
+    this.recordAcceptedEnvelope(envelope);
   }
 
   getRuntimeDiagnostics(): RuntimeDiagnostics {
@@ -174,25 +164,6 @@ export class HermesAdapterServer {
   private nextRuntimeSequence(): number {
     this.runtimeSequence += 1;
     return this.runtimeSequence;
-  }
-
-  private serializeOutgoingPayload(payload: AvatarEventPayload): RuntimeEventEnvelope {
-    if (isRuntimeEventEnvelope(payload)) {
-      this.runtimeSequence = Math.max(this.runtimeSequence, payload.sequence);
-      return payload;
-    }
-
-    if (this.options.emitRuntimeEnvelope === false) {
-      return createRuntimeEventEnvelope(payload, {
-        source: this.runtimeSource,
-        sequence: this.nextRuntimeSequence(),
-      });
-    }
-
-    return createRuntimeEventEnvelope(payload, {
-      source: this.runtimeSource,
-      sequence: this.nextRuntimeSequence(),
-    });
   }
 
   private async connectToHermes(url: string): Promise<void> {
@@ -273,10 +244,16 @@ export class HermesAdapterServer {
         connectionState: 'error',
         reconnectAttempts: HERMES_MAX_RETRIES,
       });
-      this.broadcast({
-        type: 'error',
-        message: `Lost Hermes connection at ${url}`,
-      });
+      this.broadcast(createRuntimeEventEnvelope(
+        {
+          type: 'error',
+          message: `Lost Hermes connection at ${url}`,
+        },
+        {
+          source: this.runtimeSource,
+          sequence: this.nextRuntimeSequence(),
+        },
+      ));
       return;
     }
 

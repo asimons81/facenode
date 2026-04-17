@@ -1,7 +1,7 @@
 import {
   AvatarEventSchema,
   createRuntimeEventEnvelope,
-  validateAvatarEventPayload,
+  validateRuntimeEventEnvelope,
 } from '@facenode/avatar-core';
 import type {
   AvatarEvent,
@@ -26,7 +26,7 @@ export interface HermesNormalizationContext {
 
 export interface HermesNormalizedPayload {
   envelope: RuntimeEventEnvelope;
-  origin: 'hermes' | 'runtime' | 'legacy';
+  origin: 'hermes' | 'runtime';
   correlation: HermesCorrelationState;
 }
 
@@ -59,7 +59,7 @@ export function normalizeIncomingPayload(
     return normalizeHermesPayload(rawObject, context);
   }
 
-  const validated = validateAvatarEventPayload(raw);
+  const validated = validateRuntimeEventEnvelope(raw);
   if (!validated.ok) {
     return {
       ok: false,
@@ -70,34 +70,15 @@ export function normalizeIncomingPayload(
     };
   }
 
-  const payload = validated.value;
-  if ('event' in payload) {
-    return {
-      ok: true,
-      value: {
-        envelope: payload,
-        origin: 'runtime',
-        correlation: {
-          sessionId: payload.sessionId,
-          utteranceId: payload.utteranceId,
-        },
-      },
-    };
-  }
-
-  const correlation = resolveCorrelation(rawObject, context.correlation);
   return {
     ok: true,
     value: {
-      envelope: createRuntimeEventEnvelope(payload, {
-        source: context.source,
-        sequence: context.nextSequence(),
-        timestamp: context.now?.() ?? Date.now(),
-        sessionId: correlation.sessionId,
-        utteranceId: correlation.utteranceId,
-      }),
-      origin: 'legacy',
-      correlation,
+      envelope: validated.value,
+      origin: 'runtime',
+      correlation: {
+        sessionId: validated.value.sessionId,
+        utteranceId: validated.value.utteranceId,
+      },
     },
   };
 }

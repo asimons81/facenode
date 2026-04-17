@@ -124,7 +124,7 @@ describe('HermesAdapterClient disconnect lifecycle', () => {
     expect(optionStatuses).toEqual(['connecting', 'connected', 'connecting', 'connected']);
   });
 
-  it('dispatches raw AvatarEvent payloads unchanged', () => {
+  it('rejects raw AvatarEvent payloads on the runtime transport path', () => {
     const controller = { dispatch: vi.fn() };
     const client = new HermesAdapterClient({
       url: 'ws://localhost:3456',
@@ -136,7 +136,11 @@ describe('HermesAdapterClient disconnect lifecycle', () => {
     ws.emitOpen();
     ws.emitMessage({ type: 'thinking_start' });
 
-    expect(controller.dispatch).toHaveBeenCalledWith({ type: 'thinking_start' });
+    expect(controller.dispatch).not.toHaveBeenCalled();
+    expect(client.runtimeDiagnostics).toMatchObject({
+      droppedPayloadCount: 1,
+      lastDropReason: 'invalid_runtime_payload',
+    });
   });
 
   it('unwraps runtime envelope payloads before dispatching to the controller', () => {

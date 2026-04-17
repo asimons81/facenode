@@ -87,17 +87,9 @@ export const RuntimeDiagnosticsSchema = z.object({
 
 export type RuntimeDiagnostics = z.infer<typeof RuntimeDiagnosticsSchema>;
 
-export const AvatarEventPayloadSchema = z.union([
-  AvatarEventSchema,
-  RuntimeEventEnvelopeSchema,
-]);
-
-export type AvatarEventPayload = z.infer<typeof AvatarEventPayloadSchema>;
-
 export const RuntimeTransportMessageSchema = z.union([
   RuntimeEventEnvelopeSchema,
   RuntimeDiagnosticsSchema,
-  AvatarEventSchema,
 ]);
 
 export type RuntimeTransportMessage = z.infer<typeof RuntimeTransportMessageSchema>;
@@ -139,18 +131,16 @@ export function createRuntimeEventEnvelope(
   });
 }
 
-export function extractAvatarEvent(payload: AvatarEventPayload): AvatarEvent {
-  return 'event' in payload ? payload.event : payload;
+export function extractAvatarEvent(envelope: RuntimeEventEnvelope): AvatarEvent {
+  return envelope.event;
 }
 
-export function isRuntimeEventEnvelope(
-  payload: AvatarEventPayload,
-): payload is RuntimeEventEnvelope {
-  return 'version' in payload;
+export function isRuntimeEventEnvelope(payload: unknown): payload is RuntimeEventEnvelope {
+  return payload !== null && typeof payload === 'object' && 'version' in payload;
 }
 
-export function parseAvatarEventPayload(raw: unknown): AvatarEventPayload | null {
-  const result = validateAvatarEventPayload(raw);
+export function parseRuntimeEventEnvelope(raw: unknown): RuntimeEventEnvelope | null {
+  const result = validateRuntimeEventEnvelope(raw);
   return result.ok ? result.value : null;
 }
 
@@ -159,8 +149,10 @@ export function parseRuntimeTransportMessage(raw: unknown): RuntimeTransportMess
   return result.success ? result.data : null;
 }
 
-export function validateAvatarEventPayload(raw: unknown): PayloadValidationResult<AvatarEventPayload> {
-  const result = AvatarEventPayloadSchema.safeParse(raw);
+export function validateRuntimeEventEnvelope(
+  raw: unknown,
+): PayloadValidationResult<RuntimeEventEnvelope> {
+  const result = RuntimeEventEnvelopeSchema.safeParse(raw);
   if (result.success) {
     return {
       ok: true,

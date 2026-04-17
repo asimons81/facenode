@@ -52,22 +52,7 @@ describe('parseIncomingPayload', () => {
     });
   });
 
-  it('wraps legacy AvatarEvent payloads into runtime envelopes', () => {
-    expect(
-      parseIncomingPayload(
-        { type: 'connected' },
-        {
-          runtimeSource: 'bridge',
-          nextSequence: () => 22,
-          now: () => 4444,
-        },
-      ),
-    ).toEqual({
-      version: 1,
-      source: 'bridge',
-      sequence: 22,
-      timestamp: 4444,
-      event: { type: 'connected' },
-    });
+  it('rejects legacy raw AvatarEvent payloads instead of wrapping them', () => {
+    expect(parseIncomingPayload({ type: 'connected' })).toBeNull();
   });
 });
