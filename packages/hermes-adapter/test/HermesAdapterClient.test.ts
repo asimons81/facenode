@@ -141,9 +141,11 @@ describe('HermesAdapterClient disconnect lifecycle', () => {
 
   it('unwraps runtime envelope payloads before dispatching to the controller', () => {
     const controller = { dispatch: vi.fn() };
+    const diagnostics = vi.fn();
     const client = new HermesAdapterClient({
       url: 'ws://localhost:3456',
       controller,
+      onRuntimeDiagnosticsChange: diagnostics,
     });
 
     client.connect();
@@ -158,5 +160,82 @@ describe('HermesAdapterClient disconnect lifecycle', () => {
     });
 
     expect(controller.dispatch).toHaveBeenCalledWith({ type: 'speech_end' });
+    expect(diagnostics).toHaveBeenLastCalledWith(expect.objectContaining({
+      lastAcceptedEvent: expect.objectContaining({
+        sequence: 1,
+        event: { type: 'speech_end' },
+      }),
+    }));
+  });
+
+  it('updates runtime diagnostics when the server sends a diagnostics snapshot', () => {
+    const controller = { dispatch: vi.fn() };
+    const client = new HermesAdapterClient({
+      url: 'ws://localhost:3456',
+      controller,
+    });
+
+    client.connect();
+    const ws = FakeWebSocket.instances[0]!;
+    ws.emitOpen();
+    ws.emitMessage({
+      kind: 'runtime_diagnostics',
+      version: 1,
+      source: 'hermes-adapter',
+      updatedAt: 1234,
+      connectionState: 'connected',
+      reconnectAttempts: 2,
+      droppedPayloadCount: 3,
+      lastDropReason: 'invalid_hermes_payload',
+      lastDropDetail: 'bad amplitude',
+      sessionId: 'session-1',
+      utteranceId: 'utt-1',
+    });
+
+    expect(client.runtimeDiagnostics).toMatchObject({
+      source: 'hermes-adapter',
+      connectionState: 'connected',
+      reconnectAttempts: 2,
+      droppedPayloadCount: 3,
+      lastDropReason: 'invalid_hermes_payload',
+      sessionId: 'session-1',
+      utteranceId: 'utt-1',
+    });
+    expect(controller.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('drops out-of-order runtime envelopes with an explicit drop reason', () => {
+    const controller = { dispatch: vi.fn() };
+    const client = new HermesAdapterClient({
+      url: 'ws://localhost:3456',
+      controller,
+    });
+
+    client.connect();
+    const ws = FakeWebSocket.instances[0]!;
+    ws.emitOpen();
+
+    ws.emitMessage({
+      version: 1,
+      source: 'hermes-adapter',
+      sequence: 4,
+      timestamp: 1000,
+      event: { type: 'speech_start' },
+    });
+    ws.emitMessage({
+      version: 1,
+      source: 'hermes-adapter',
+      sequence: 3,
+      timestamp: 900,
+      event: { type: 'speech_chunk', amplitude: 0.2 },
+    });
+
+    expect(controller.dispatch.mock.calls).toEqual([
+      [{ type: 'speech_start' }],
+    ]);
+    expect(client.runtimeDiagnostics).toMatchObject({
+      droppedPayloadCount: 1,
+      lastDropReason: 'out_of_order_runtime_event',
+    });
   });
 });

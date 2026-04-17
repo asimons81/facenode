@@ -2,25 +2,34 @@
  * HermesAdapterClient — browser only.
  *
  * Connects to a HermesAdapterServer (or MockHermesEmitter) over a local
- * WebSocket, validates incoming payloads as either raw AvatarEvents or
- * runtime envelopes, and dispatches only the inner AvatarEvent to an
+ * WebSocket, validates incoming payloads as runtime transport messages, and
+ * dispatches only the inner AvatarEvent to an
  * AvatarEventDispatcher (typically AvatarController).
  *
  * Auto-reconnect: exponential backoff starting at 1 s, max 5 attempts.
  * After exhausting retries, dispatches `{ type: 'error' }` to the controller.
  */
-import { extractAvatarEvent, parseAvatarEventPayload } from '@facenode/avatar-core';
+import {
+  createRuntimeDiagnostics,
+  extractAvatarEvent,
+  isRuntimeEventEnvelope,
+  validateRuntimeTransportMessage,
+} from '@facenode/avatar-core';
+import type { RuntimeDiagnostics, RuntimeDropReason, RuntimeEventEnvelope } from '@facenode/avatar-core';
 import type { AvatarEventDispatcher } from '@facenode/avatar-sdk';
 
 export type WsStatus = 'connecting' | 'connected' | 'disconnected' | 'error';
 
 type StatusListener = (status: WsStatus) => void;
+type DiagnosticsListener = (diagnostics: RuntimeDiagnostics) => void;
 
 export interface HermesAdapterClientOptions {
   url: string;
   controller: AvatarEventDispatcher;
   /** Optional callback for WebSocket connection status changes. */
   onStatusChange?: (status: WsStatus) => void;
+  /** Optional callback for runtime diagnostics snapshots. */
+  onRuntimeDiagnosticsChange?: (diagnostics: RuntimeDiagnostics) => void;
 }
 
 export class HermesAdapterClient {
@@ -32,6 +41,14 @@ export class HermesAdapterClient {
 
   private _status: WsStatus = 'disconnected';
   private readonly statusListeners = new Set<StatusListener>();
+  private readonly diagnosticsListeners = new Set<DiagnosticsListener>();
+  private readonly lastSequenceBySource = new Map<string, number>();
+  private _runtimeDiagnostics: RuntimeDiagnostics = createRuntimeDiagnostics({
+    source: 'hermes-adapter-client',
+    connectionState: 'disconnected',
+    reconnectAttempts: 0,
+    droppedPayloadCount: 0,
+  });
 
   private static readonly MAX_RETRIES = 5;
   private static readonly BASE_DELAY_MS = 1000;
@@ -45,12 +62,14 @@ export class HermesAdapterClient {
     this.intentionalClose = false;
     this.outageNotified = false;
     this.retryCount = 0;
+    this.lastSequenceBySource.clear();
     this.attemptConnection();
   }
 
   disconnect(): void {
     this.intentionalClose = true;
     this.clearRetryTimer();
+    this.lastSequenceBySource.clear();
     if (this.ws) {
       this.ws.onopen = null;
       this.ws.onclose = null;
@@ -66,10 +85,20 @@ export class HermesAdapterClient {
     return this._status;
   }
 
+  get runtimeDiagnostics(): RuntimeDiagnostics {
+    return this._runtimeDiagnostics;
+  }
+
   /** @returns Unsubscribe function. */
   onStatusChange(cb: StatusListener): () => void {
     this.statusListeners.add(cb);
     return () => this.statusListeners.delete(cb);
+  }
+
+  /** @returns Unsubscribe function. */
+  onRuntimeDiagnosticsChange(cb: DiagnosticsListener): () => void {
+    this.diagnosticsListeners.add(cb);
+    return () => this.diagnosticsListeners.delete(cb);
   }
 
   // ── Private ────────────────────────────────────────────────────────────────
@@ -98,17 +127,26 @@ export class HermesAdapterClient {
     ws.onmessage = (msg: MessageEvent<unknown>) => {
       try {
         const raw = JSON.parse(msg.data as string) as unknown;
-        const payload = parseAvatarEventPayload(raw);
-        if (payload) {
-          this.options.controller.dispatch(extractAvatarEvent(payload));
-        } else {
-          console.warn(
-            '[HermesAdapterClient] Dropped invalid event:',
-            'Payload did not match AvatarEvent or RuntimeEventEnvelope schema.',
-          );
+        const message = validateRuntimeTransportMessage(raw);
+        if (!message.ok) {
+          this.recordLocalDrop(message.reason, message.detail);
+          return;
         }
+
+        if ('kind' in message.value) {
+          this.setRuntimeDiagnostics(message.value);
+          return;
+        }
+
+        if (isRuntimeEventEnvelope(message.value)) {
+          if (!this.acceptEnvelope(message.value)) {
+            return;
+          }
+        }
+
+        this.options.controller.dispatch(extractAvatarEvent(message.value));
       } catch (err) {
-        console.warn('[HermesAdapterClient] Failed to parse message:', err);
+        this.recordLocalDrop('invalid_json', `Invalid JSON payload: ${(err as Error).message}`);
       }
     };
 
@@ -143,6 +181,10 @@ export class HermesAdapterClient {
       this.ws = null;
       this.dispatchDisconnectedLifecycle();
       this.setStatus('error');
+      this.patchDiagnostics({
+        connectionState: 'error',
+        reconnectAttempts: HermesAdapterClient.MAX_RETRIES,
+      });
       this.options.controller.dispatch({
         type: 'error',
         message: `WebSocket connection to ${this.options.url} failed after ${HermesAdapterClient.MAX_RETRIES} retries.`,
@@ -155,6 +197,10 @@ export class HermesAdapterClient {
       `[HermesAdapterClient] Retry ${this.retryCount}/${HermesAdapterClient.MAX_RETRIES} in ${delay}ms…`,
     );
     this.setStatus('connecting');
+    this.patchDiagnostics({
+      connectionState: 'reconnecting',
+      reconnectAttempts: this.retryCount,
+    });
     this.retryTimer = setTimeout(() => this.attemptConnection(), delay);
   }
 
@@ -170,6 +216,11 @@ export class HermesAdapterClient {
     this._status = status;
     this.options.onStatusChange?.(status);
     this.statusListeners.forEach((cb) => cb(status));
+
+    const connectionState = status === 'connecting'
+      ? this.retryCount > 0 ? 'reconnecting' : 'connecting'
+      : status;
+    this.patchDiagnostics({ connectionState });
   }
 
   private dispatchDisconnectedLifecycle(): void {
@@ -191,5 +242,61 @@ export class HermesAdapterClient {
     ws.onerror = null;
     ws.onmessage = null;
     ws.close();
+  }
+
+  private acceptEnvelope(envelope: RuntimeEventEnvelope): boolean {
+    const lastSeen = this.lastSequenceBySource.get(envelope.source) ?? -1;
+    if (envelope.sequence <= lastSeen) {
+      this.recordLocalDrop(
+        'out_of_order_runtime_event',
+        `Received sequence ${envelope.sequence} after ${lastSeen} from ${envelope.source}.`,
+      );
+      return false;
+    }
+
+    this.lastSequenceBySource.set(envelope.source, envelope.sequence);
+    this.patchDiagnostics({
+      lastAcceptedEvent: envelope,
+      sessionId: envelope.sessionId,
+      utteranceId: envelope.utteranceId,
+    });
+    return true;
+  }
+
+  private recordLocalDrop(reason: RuntimeDropReason, detail: string): void {
+    console.warn('[HermesAdapterClient] Dropped payload:', reason, detail);
+    this.patchDiagnostics({
+      droppedPayloadCount: this._runtimeDiagnostics.droppedPayloadCount + 1,
+      lastDropReason: reason,
+      lastDropDetail: detail,
+    });
+  }
+
+  private setRuntimeDiagnostics(diagnostics: RuntimeDiagnostics): void {
+    this._runtimeDiagnostics = diagnostics;
+    if (diagnostics.lastAcceptedEvent) {
+      this.lastSequenceBySource.set(
+        diagnostics.lastAcceptedEvent.source,
+        diagnostics.lastAcceptedEvent.sequence,
+      );
+    }
+    this.options.onRuntimeDiagnosticsChange?.(diagnostics);
+    this.diagnosticsListeners.forEach((cb) => cb(diagnostics));
+  }
+
+  private patchDiagnostics(
+    patch: Partial<Omit<RuntimeDiagnostics, 'kind' | 'version' | 'source' | 'updatedAt'>>,
+  ): void {
+    this.setRuntimeDiagnostics(createRuntimeDiagnostics({
+      source: this._runtimeDiagnostics.source,
+      connectionState: patch.connectionState ?? this._runtimeDiagnostics.connectionState,
+      reconnectAttempts: patch.reconnectAttempts ?? this._runtimeDiagnostics.reconnectAttempts,
+      droppedPayloadCount: patch.droppedPayloadCount ?? this._runtimeDiagnostics.droppedPayloadCount,
+      lastDropReason: patch.lastDropReason ?? this._runtimeDiagnostics.lastDropReason,
+      lastDropDetail: patch.lastDropDetail ?? this._runtimeDiagnostics.lastDropDetail,
+      lastAcceptedEvent: patch.lastAcceptedEvent ?? this._runtimeDiagnostics.lastAcceptedEvent,
+      sessionId: patch.sessionId ?? this._runtimeDiagnostics.sessionId,
+      utteranceId: patch.utteranceId ?? this._runtimeDiagnostics.utteranceId,
+    }));
   }
 }

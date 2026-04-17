@@ -1,0 +1,7 @@
+[
+  { "event": "ready", "sessionId": "session-amp" },
+  { "event": "tts.start", "sessionId": "session-amp", "utteranceId": "utt-amp" },
+  { "event": "tts.chunk", "sessionId": "session-amp", "utteranceId": "utt-amp", "text": "Amplitude one", "amplitude": 0.52 },
+  { "event": "tts.chunk", "sessionId": "session-amp", "utteranceId": "utt-amp", "text": "Amplitude two", "amplitude": 0.48 },
+  { "event": "tts.end", "sessionId": "session-amp", "utteranceId": "utt-amp" }
+]

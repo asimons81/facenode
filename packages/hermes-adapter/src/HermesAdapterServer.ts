@@ -3,183 +3,104 @@
  *
  * Creates a WebSocket server that avatar clients connect to.
  * Optionally connects upstream to a real Hermes WebSocket endpoint,
- * translates Hermes-format payloads → AvatarEvents, and re-broadcasts them as
- * either raw events or runtime envelopes.
+ * normalizes Hermes-format payloads into Runtime Contract v1 envelopes,
+ * and re-broadcasts them alongside runtime diagnostics snapshots.
  *
  * If hermesWsUrl is omitted the server is broadcast-only; events can be
  * injected programmatically via broadcast().
- *
- * ── Hermes payload mapping ────────────────────────────────────────────────────
- *
- * When hermesWsUrl is set, the server reads Hermes-native JSON objects and
- * maps them to AvatarEvents before broadcasting to avatar clients.
- *
- * Expected Hermes event shapes:
- *   { "event": "ready" }                               → connected
- *   { "event": "disconnect" }                          → disconnected
- *   { "event": "user.speech.start" }                   → listening_start
- *   { "event": "user.speech.end" }                     → listening_end
- *   { "event": "llm.start" }                           → thinking_start
- *   { "event": "llm.end" }                             → thinking_end
- *   { "event": "tts.start", "audio_url": "..." }       → speech_start
- *   { "event": "tts.chunk", "text": "...",
- *             "amplitude": 0.6 }                       → speech_chunk
- *   { "event": "tts.end" }                             → speech_end
- *   { "event": "tts.viseme", "timestamp": 1234,
- *     "visemes": [{ "viseme": "aa", "weight": 0.8 }] } → viseme_frame
- *   { "event": "error", "message": "..." }             → error
- *
- * Unrecognised events are silently dropped.
- *
- * As a fallback, if the payload already matches either AvatarEventSchema or the
- * runtime envelope schema (e.g. from MockHermesEmitter or another runtime-aware
- * producer), it is forwarded as-is so envelope metadata stays intact.
  */
 import { WebSocketServer, WebSocket } from 'ws';
 import {
-  AvatarEventSchema,
+  createRuntimeDiagnostics,
   createRuntimeEventEnvelope,
   isRuntimeEventEnvelope,
-  parseAvatarEventPayload,
 } from '@facenode/avatar-core';
 import type {
   AvatarEvent,
   AvatarEventPayload,
+  RuntimeConnectionState,
+  RuntimeDiagnostics,
+  RuntimeDropReason,
   RuntimeEventEnvelope,
-  Viseme,
 } from '@facenode/avatar-core';
+import { normalizeIncomingPayload } from './hermesProtocol.js';
+import type { HermesCorrelationState, HermesNormalizationResult } from './hermesProtocol.js';
 
 export interface HermesAdapterServerOptions {
   /** Port the avatar clients connect to. */
   port: number;
   /** Upstream Hermes WebSocket URL (optional — omit for mock/test usage). */
   hermesWsUrl?: string;
-  /** When true, broadcast wrapped runtime envelopes instead of raw AvatarEvents. */
+  /**
+   * When false, allow manual raw AvatarEvent broadcast for legacy/demo usage.
+   * Hermes-normalized traffic is always emitted as Runtime Contract v1 envelopes.
+   */
   emitRuntimeEnvelope?: boolean;
-  /** Runtime-assigned source label used when `emitRuntimeEnvelope` is true. */
+  /** Runtime-assigned source label for envelopes and diagnostics. */
   runtimeSource?: string;
 }
-
-// ── Hermes payload translator ─────────────────────────────────────────────────
-
-type RawObject = Record<string, unknown>;
-
-function mapHermesPayload(raw: RawObject): AvatarEvent | null {
-  const ev = raw['event'];
-  if (typeof ev !== 'string') return null;
-
-  switch (ev) {
-    case 'ready':
-      return { type: 'connected' };
-
-    case 'disconnect':
-      return { type: 'disconnected' };
-
-    case 'user.speech.start':
-      return { type: 'listening_start' };
-
-    case 'user.speech.end':
-      return { type: 'listening_end' };
-
-    case 'llm.start':
-      return { type: 'thinking_start' };
-
-    case 'llm.end':
-      return { type: 'thinking_end' };
-
-    case 'tts.start':
-      return {
-        type: 'speech_start',
-        audioUrl: typeof raw['audio_url'] === 'string' ? raw['audio_url'] : undefined,
-      };
-
-    case 'tts.chunk':
-      return {
-        type: 'speech_chunk',
-        text: typeof raw['text'] === 'string' ? raw['text'] : undefined,
-        amplitude:
-          typeof raw['amplitude'] === 'number' ? raw['amplitude'] : undefined,
-      };
-
-    case 'tts.end':
-      return { type: 'speech_end' };
-
-    case 'tts.viseme': {
-      const rawVisemes = raw['visemes'];
-      const visemes: Array<{ viseme: Viseme; weight: number }> = [];
-      if (Array.isArray(rawVisemes)) {
-        for (const v of rawVisemes) {
-          if (
-            v !== null &&
-            typeof v === 'object' &&
-            typeof (v as RawObject)['viseme'] === 'string' &&
-            typeof (v as RawObject)['weight'] === 'number'
-          ) {
-            visemes.push({
-              viseme: (v as RawObject)['viseme'] as Viseme,
-              weight: (v as RawObject)['weight'] as number,
-            });
-          }
-        }
-      }
-      return {
-        type: 'viseme_frame',
-        timestamp: typeof raw['timestamp'] === 'number' ? raw['timestamp'] : Date.now(),
-        visemes,
-      };
-    }
-
-    case 'error':
-      return {
-        type: 'error',
-        message: typeof raw['message'] === 'string' ? raw['message'] : 'Unknown Hermes error',
-      };
-
-    default:
-      return null;
-  }
-}
-
-function validateAvatarEvent(raw: unknown): AvatarEvent | null {
-  const result = AvatarEventSchema.safeParse(raw);
-  return result.success ? result.data : null;
-}
-
-/** Try Hermes mapping first; if it yields nothing, fall back to raw/enveloped runtime payload parsing. */
-export function parseIncomingPayload(raw: unknown): AvatarEventPayload | null {
-  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return null;
-
-  const mapped = mapHermesPayload(raw as RawObject);
-  if (mapped) return validateAvatarEvent(mapped);
-
-  return parseAvatarEventPayload(raw);
-}
-
-// ── Reconnect constants ───────────────────────────────────────────────────────
 
 const HERMES_MAX_RETRIES = 5;
 const HERMES_BASE_DELAY_MS = 1000;
 
-// ── Server class ──────────────────────────────────────────────────────────────
+function createInitialDiagnostics(
+  source: string,
+  connectionState: RuntimeConnectionState,
+): RuntimeDiagnostics {
+  return createRuntimeDiagnostics({
+    source,
+    connectionState,
+    reconnectAttempts: 0,
+    droppedPayloadCount: 0,
+  });
+}
+
+export function parseIncomingPayload(
+  raw: unknown,
+  options: {
+    runtimeSource?: string;
+    correlation?: HermesCorrelationState;
+    nextSequence?: () => number;
+    now?: () => number;
+  } = {},
+): RuntimeEventEnvelope | null {
+  const sequence = options.nextSequence ?? (() => 1);
+  const result = normalizeIncomingPayload(raw, {
+    source: options.runtimeSource ?? 'hermes-adapter',
+    correlation: options.correlation,
+    nextSequence: sequence,
+    now: options.now,
+  });
+
+  return result.ok ? result.value.envelope : null;
+}
 
 export class HermesAdapterServer {
   private wss: WebSocketServer | null = null;
   private hermesWs: WebSocket | null = null;
   private readonly clients = new Set<WebSocket>();
   private runtimeSequence = 0;
+  private correlation: HermesCorrelationState = {};
+  private diagnostics: RuntimeDiagnostics;
 
-  // Hermes reconnect state
   private hermesRetryCount = 0;
   private hermesRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private hermesIntentionalClose = false;
 
-  constructor(private readonly options: HermesAdapterServerOptions) {}
+  constructor(private readonly options: HermesAdapterServerOptions) {
+    this.diagnostics = createInitialDiagnostics(
+      this.runtimeSource,
+      this.options.hermesWsUrl ? 'connecting' : 'idle',
+    );
+  }
 
   async start(): Promise<void> {
     this.wss = new WebSocketServer({ port: this.options.port });
 
     this.wss.on('connection', (client) => {
       this.clients.add(client);
+      this.sendDiagnostics(client);
+
       client.on('close', () => this.clients.delete(client));
       client.on('error', (err) => {
         console.warn('[HermesAdapterServer] Client error:', err.message);
@@ -197,6 +118,7 @@ export class HermesAdapterServer {
     if (this.options.hermesWsUrl) {
       this.hermesIntentionalClose = false;
       this.hermesRetryCount = 0;
+      this.updateDiagnostics({ connectionState: 'connecting', reconnectAttempts: 0 });
       try {
         await this.connectToHermes(this.options.hermesWsUrl);
       } catch (err) {
@@ -216,6 +138,11 @@ export class HermesAdapterServer {
       this.hermesWs = null;
     }
 
+    this.updateDiagnostics({
+      connectionState: 'disconnected',
+      reconnectAttempts: this.hermesRetryCount,
+    });
+
     await new Promise<void>((resolve, reject) => {
       if (!this.wss) return resolve();
       this.wss.close((err) => (err ? reject(err) : resolve()));
@@ -227,36 +154,44 @@ export class HermesAdapterServer {
 
   /**
    * Broadcast a validated AvatarEvent or runtime envelope to all connected
-   * avatar clients. Raw events are wrapped only when configured; existing
-   * envelopes pass through unchanged so optional metadata is preserved.
-   * Safe to call even if no clients are connected.
+   * avatar clients. Raw events are wrapped by default so the runtime contract
+   * stays versioned end-to-end.
    */
   broadcast(payload: AvatarEventPayload): void {
-    const outgoing = JSON.stringify(this.serializeOutgoingPayload(payload));
-    for (const client of this.clients) {
-      if (client.readyState === WebSocket.OPEN) {
-        client.send(outgoing);
-      }
-    }
+    const outgoing = this.serializeOutgoingPayload(payload);
+    this.broadcastJson(outgoing);
+    this.recordAcceptedEnvelope(outgoing);
   }
 
-  // ── Private ─────────────────────────────────────────────────────────────────
+  getRuntimeDiagnostics(): RuntimeDiagnostics {
+    return this.diagnostics;
+  }
 
-  private serializeOutgoingPayload(
-    payload: AvatarEventPayload,
-  ): AvatarEvent | RuntimeEventEnvelope {
-    if (isRuntimeEventEnvelope(payload)) {
-      return payload;
-    }
+  private get runtimeSource(): string {
+    return this.options.runtimeSource ?? 'hermes-adapter';
+  }
 
-    if (!this.options.emitRuntimeEnvelope) {
-      return payload;
-    }
-
+  private nextRuntimeSequence(): number {
     this.runtimeSequence += 1;
+    return this.runtimeSequence;
+  }
+
+  private serializeOutgoingPayload(payload: AvatarEventPayload): RuntimeEventEnvelope {
+    if (isRuntimeEventEnvelope(payload)) {
+      this.runtimeSequence = Math.max(this.runtimeSequence, payload.sequence);
+      return payload;
+    }
+
+    if (this.options.emitRuntimeEnvelope === false) {
+      return createRuntimeEventEnvelope(payload, {
+        source: this.runtimeSource,
+        sequence: this.nextRuntimeSequence(),
+      });
+    }
+
     return createRuntimeEventEnvelope(payload, {
-      source: this.options.runtimeSource ?? 'hermes-adapter',
-      sequence: this.runtimeSequence,
+      source: this.runtimeSource,
+      sequence: this.nextRuntimeSequence(),
     });
   }
 
@@ -268,14 +203,15 @@ export class HermesAdapterServer {
     ws.on('message', (data) => {
       try {
         const raw = JSON.parse(data.toString()) as unknown;
-        const payload = parseIncomingPayload(raw);
-        if (payload) {
-          this.broadcast(payload);
-        } else {
-          console.warn('[HermesAdapterServer] Dropped unrecognised payload:', data.toString().slice(0, 200));
-        }
+        const result = normalizeIncomingPayload(raw, {
+          source: this.runtimeSource,
+          correlation: this.correlation,
+          nextSequence: () => this.nextRuntimeSequence(),
+        });
+
+        this.handleNormalizedResult(result);
       } catch (err) {
-        console.warn('[HermesAdapterServer] Failed to parse message:', err);
+        this.recordDrop('invalid_json', `Invalid JSON payload: ${(err as Error).message}`);
       }
     });
 
@@ -283,11 +219,14 @@ export class HermesAdapterServer {
       if (this.hermesIntentionalClose || !connected) return;
       console.warn('[HermesAdapterServer] Hermes upstream closed — scheduling reconnect.');
       this.hermesWs = null;
+      this.updateDiagnostics({
+        connectionState: 'reconnecting',
+        reconnectAttempts: this.hermesRetryCount,
+      });
       this.scheduleHermesReconnect(url);
     });
 
     ws.on('error', (err) => {
-      // onerror precedes onclose — log only, let onclose schedule the retry.
       if (!this.hermesIntentionalClose) {
         console.warn('[HermesAdapterServer] Hermes upstream error:', err.message);
       }
@@ -297,11 +236,26 @@ export class HermesAdapterServer {
       ws.once('open', () => {
         connected = true;
         this.hermesRetryCount = 0;
+        this.updateDiagnostics({
+          connectionState: 'connected',
+          reconnectAttempts: 0,
+        });
         console.log(`[HermesAdapterServer] Connected to Hermes at ${url}`);
         resolve();
       });
       ws.once('error', reject);
     });
+  }
+
+  private handleNormalizedResult(result: HermesNormalizationResult): void {
+    if (!result.ok) {
+      this.recordDrop(result.drop.reason, result.drop.detail);
+      return;
+    }
+
+    this.correlation = result.value.correlation;
+    this.broadcastJson(result.value.envelope);
+    this.recordAcceptedEnvelope(result.value.envelope);
   }
 
   private scheduleHermesReconnect(url: string): void {
@@ -315,11 +269,22 @@ export class HermesAdapterServer {
         `[HermesAdapterServer] Max retries (${HERMES_MAX_RETRIES}) exhausted — giving up on Hermes connection.`,
       );
       this.clearHermesRetryTimer();
-      this.broadcast({ type: 'error', message: `Lost Hermes connection at ${url}` });
+      this.updateDiagnostics({
+        connectionState: 'error',
+        reconnectAttempts: HERMES_MAX_RETRIES,
+      });
+      this.broadcast({
+        type: 'error',
+        message: `Lost Hermes connection at ${url}`,
+      });
       return;
     }
 
     const delay = HERMES_BASE_DELAY_MS * Math.pow(2, this.hermesRetryCount - 1);
+    this.updateDiagnostics({
+      connectionState: 'reconnecting',
+      reconnectAttempts: this.hermesRetryCount,
+    });
     console.log(
       `[HermesAdapterServer] Hermes reconnect ${this.hermesRetryCount}/${HERMES_MAX_RETRIES} in ${delay}ms…`,
     );
@@ -340,5 +305,66 @@ export class HermesAdapterServer {
       clearTimeout(this.hermesRetryTimer);
       this.hermesRetryTimer = null;
     }
+  }
+
+  private recordAcceptedEnvelope(envelope: RuntimeEventEnvelope): void {
+    this.updateDiagnostics({
+      lastAcceptedEvent: envelope,
+      sessionId: envelope.sessionId,
+      utteranceId: envelope.utteranceId,
+    });
+  }
+
+  private recordDrop(reason: RuntimeDropReason, detail: string): void {
+    console.warn('[HermesAdapterServer] Dropped payload:', reason, detail);
+    this.updateDiagnostics({
+      droppedPayloadCount: this.diagnostics.droppedPayloadCount + 1,
+      lastDropReason: reason,
+      lastDropDetail: detail,
+    });
+  }
+
+  private updateDiagnostics(
+    patch: Partial<Omit<RuntimeDiagnostics, 'kind' | 'version' | 'source' | 'updatedAt'>>,
+  ): void {
+    this.diagnostics = createRuntimeDiagnostics({
+      source: this.runtimeSource,
+      connectionState: patch.connectionState ?? this.diagnostics.connectionState,
+      reconnectAttempts: patch.reconnectAttempts ?? this.diagnostics.reconnectAttempts,
+      droppedPayloadCount: patch.droppedPayloadCount ?? this.diagnostics.droppedPayloadCount,
+      lastDropReason: patch.lastDropReason ?? this.diagnostics.lastDropReason,
+      lastDropDetail: patch.lastDropDetail ?? this.diagnostics.lastDropDetail,
+      lastAcceptedEvent: patch.lastAcceptedEvent ?? this.diagnostics.lastAcceptedEvent,
+      sessionId: patch.sessionId ?? this.diagnostics.sessionId,
+      utteranceId: patch.utteranceId ?? this.diagnostics.utteranceId,
+    });
+    this.broadcastDiagnostics();
+  }
+
+  private broadcastJson(payload: RuntimeEventEnvelope | RuntimeDiagnostics): void {
+    const outgoing = JSON.stringify(payload);
+    for (const client of this.clients) {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(outgoing);
+      }
+    }
+  }
+
+  private broadcastDiagnostics(): void {
+    this.broadcastJson(this.diagnostics);
+  }
+
+  private sendDiagnostics(client: WebSocket): void {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify(this.diagnostics));
+      return;
+    }
+
+    const sendWhenReady = () => {
+      if (client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify(this.diagnostics));
+      }
+    };
+    client.once('open', sendWhenReady);
   }
 }

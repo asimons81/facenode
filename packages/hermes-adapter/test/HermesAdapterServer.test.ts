@@ -2,17 +2,26 @@ import { describe, expect, it } from 'vitest';
 import { parseIncomingPayload } from '../src/HermesAdapterServer.js';
 
 describe('parseIncomingPayload', () => {
-  it('validates Hermes-mapped events before returning them', () => {
+  it('normalizes Hermes payloads into runtime envelopes', () => {
     expect(
       parseIncomingPayload({
         event: 'tts.chunk',
+        sessionId: 'session-1',
+        utteranceId: 'utt-1',
         text: 'hello',
         amplitude: 0.4,
       }),
-    ).toEqual({
-      type: 'speech_chunk',
-      text: 'hello',
-      amplitude: 0.4,
+    ).toMatchObject({
+      version: 1,
+      source: 'hermes-adapter',
+      sequence: 1,
+      sessionId: 'session-1',
+      utteranceId: 'utt-1',
+      event: {
+        type: 'speech_chunk',
+        text: 'hello',
+        amplitude: 0.4,
+      },
     });
   });
 
@@ -43,20 +52,21 @@ describe('parseIncomingPayload', () => {
     });
   });
 
-  it('accepts envelopes when optional metadata is absent', () => {
+  it('wraps legacy AvatarEvent payloads into runtime envelopes', () => {
     expect(
-      parseIncomingPayload({
-        version: 1,
-        source: 'hermes-adapter',
-        sequence: 9,
-        timestamp: 1234,
-        event: { type: 'connected' },
-      }),
+      parseIncomingPayload(
+        { type: 'connected' },
+        {
+          runtimeSource: 'bridge',
+          nextSequence: () => 22,
+          now: () => 4444,
+        },
+      ),
     ).toEqual({
       version: 1,
-      source: 'hermes-adapter',
-      sequence: 9,
-      timestamp: 1234,
+      source: 'bridge',
+      sequence: 22,
+      timestamp: 4444,
       event: { type: 'connected' },
     });
   });

@@ -163,7 +163,36 @@ describe('HermesAdapterServer lifecycle', () => {
 
     server.broadcast(parsed!);
 
+    const sentMessages = client.sentPayloads.map((payload) => JSON.parse(payload));
+    expect(sentMessages).toEqual(
+      expect.arrayContaining([
+        incoming,
+        expect.objectContaining({
+          kind: 'runtime_diagnostics',
+          source: 'hermes-adapter',
+          lastAcceptedEvent: incoming,
+          sessionId: 'session-123',
+          utteranceId: 'utterance-456',
+        }),
+      ]),
+    );
+  });
+
+  it('pushes an initial diagnostics snapshot to newly connected clients', async () => {
+    const server = new HermesAdapterServer({ port: 9876, hermesWsUrl: 'ws://hermes.local' });
+    await server.start();
+
+    const wss = mocks.MockWebSocketServer.instances[0]!;
+    const client = new mocks.MockWebSocket('ws://client');
+    wss.emit('connection', client);
+
     expect(client.sentPayloads).toHaveLength(1);
-    expect(JSON.parse(client.sentPayloads[0]!)).toEqual(incoming);
+    expect(JSON.parse(client.sentPayloads[0]!)).toMatchObject({
+      kind: 'runtime_diagnostics',
+      source: 'hermes-adapter',
+      connectionState: 'connected',
+      reconnectAttempts: 0,
+      droppedPayloadCount: 0,
+    });
   });
 });

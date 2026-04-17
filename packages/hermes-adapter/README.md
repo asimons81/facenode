@@ -4,8 +4,8 @@ WebSocket bridge between Hermes AI agent events and FaceNode avatar events.
 
 ## What it does
 
-- **`HermesAdapterServer`** (Node.js) — WebSocket server that avatar clients connect to. When `hermesWsUrl` is provided, connects upstream to Hermes, translates payloads, and rebroadcasts them. Exponential backoff reconnection (max 5 retries).
-- **`HermesAdapterClient`** (browser) — Connects to the server, validates events with Zod, dispatches to `AvatarController`. Auto-reconnects with exponential backoff.
+- **`HermesAdapterServer`** (Node.js) — WebSocket server that avatar clients connect to. When `hermesWsUrl` is provided, connects upstream to Hermes, normalizes payloads into Runtime Contract v1 envelopes, rebroadcasts them, and emits runtime diagnostics snapshots. Exponential backoff reconnection (max 5 retries).
+- **`HermesAdapterClient`** (browser) — Connects to the server, validates runtime transport messages with Zod, enforces envelope ordering, dispatches typed avatar events to `AvatarController`, and exposes runtime diagnostics to the UI. Auto-reconnects with exponential backoff.
 - **`MockHermesEmitter`** (Node.js) — Scripted WebSocket server for dev/demo. Loops through a full idle → listening → thinking → speaking sequence with viseme frames.
 
 ## Hermes payload mapping
@@ -26,7 +26,7 @@ When `hermesWsUrl` is set, `HermesAdapterServer` expects these Hermes-native JSO
 | `{ "event": "tts.viseme", "timestamp": 1234, "visemes": [...] }` | `viseme_frame` |
 | `{ "event": "error", "message": "..." }` | `error` |
 
-Unrecognised event names are dropped. As a fallback, payloads that already match `AvatarEventSchema` directly are forwarded as-is (useful for the mock in non-hermes mode).
+Unrecognised or malformed Hermes payloads are dropped with explicit reasons surfaced through runtime diagnostics. As a fallback, payloads that already match `AvatarEventSchema` directly are wrapped into Runtime Contract v1 envelopes (useful for the mock in non-hermes mode).
 
 ## Install
 

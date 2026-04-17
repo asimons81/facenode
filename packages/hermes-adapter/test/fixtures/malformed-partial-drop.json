@@ -1,0 +1,9 @@
+[
+  { "event": "ready", "sessionId": "session-drop" },
+  { "event": "tts.chunk", "sessionId": "session-drop", "utteranceId": "utt-drop", "amplitude": 2 },
+  { "event": "unknown.hermes.event", "sessionId": "session-drop" },
+  { "foo": "bar" },
+  { "event": "tts.start", "sessionId": "session-drop", "utteranceId": "utt-drop" },
+  { "event": "tts.chunk", "sessionId": "session-drop", "utteranceId": "utt-drop", "text": "Recovered", "amplitude": 0.45 },
+  { "event": "tts.end", "sessionId": "session-drop", "utteranceId": "utt-drop" }
+]

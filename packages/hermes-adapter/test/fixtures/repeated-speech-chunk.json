@@ -1,0 +1,7 @@
+[
+  { "event": "ready", "sessionId": "session-repeat" },
+  { "event": "tts.start", "sessionId": "session-repeat", "utteranceId": "utt-repeat" },
+  { "event": "tts.chunk", "sessionId": "session-repeat", "utteranceId": "utt-repeat", "text": "Echo", "amplitude": 0.4 },
+  { "event": "tts.chunk", "sessionId": "session-repeat", "utteranceId": "utt-repeat", "text": "Echo", "amplitude": 0.4 },
+  { "event": "tts.end", "sessionId": "session-repeat", "utteranceId": "utt-repeat" }
+]

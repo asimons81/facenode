@@ -1,0 +1,11 @@
+[
+  { "event": "ready", "sessionId": "session-happy" },
+  { "event": "user.speech.start", "sessionId": "session-happy" },
+  { "event": "user.speech.end", "sessionId": "session-happy" },
+  { "event": "llm.start", "sessionId": "session-happy" },
+  { "event": "llm.end", "sessionId": "session-happy" },
+  { "event": "tts.start", "sessionId": "session-happy", "utteranceId": "utt-happy", "audio_url": "https://example.com/happy.mp3" },
+  { "event": "tts.chunk", "sessionId": "session-happy", "utteranceId": "utt-happy", "text": "Hello there.", "amplitude": 0.42 },
+  { "event": "tts.viseme", "sessionId": "session-happy", "utteranceId": "utt-happy", "timestamp": 100, "visemes": [{ "viseme": "aa", "weight": 0.7 }, { "viseme": "sil", "weight": 0.3 }] },
+  { "event": "tts.end", "sessionId": "session-happy", "utteranceId": "utt-happy" }
+]

@@ -1,0 +1,10 @@
+[
+  { "event": "ready", "sessionId": "session-reconnect" },
+  { "event": "llm.start", "sessionId": "session-reconnect" },
+  { "event": "tts.start", "sessionId": "session-reconnect", "utteranceId": "utt-reconnect" },
+  { "event": "tts.chunk", "sessionId": "session-reconnect", "utteranceId": "utt-reconnect", "text": "First chunk", "amplitude": 0.31 },
+  { "event": "disconnect", "sessionId": "session-reconnect" },
+  { "event": "ready", "sessionId": "session-reconnect" },
+  { "event": "tts.chunk", "sessionId": "session-reconnect", "utteranceId": "utt-reconnect", "text": "Recovered chunk", "amplitude": 0.37 },
+  { "event": "tts.end", "sessionId": "session-reconnect", "utteranceId": "utt-reconnect" }
+]

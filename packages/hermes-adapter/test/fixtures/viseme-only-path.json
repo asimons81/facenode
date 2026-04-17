@@ -1,0 +1,7 @@
+[
+  { "event": "ready", "sessionId": "session-viseme" },
+  { "event": "tts.start", "sessionId": "session-viseme", "utteranceId": "utt-viseme" },
+  { "event": "tts.viseme", "sessionId": "session-viseme", "utteranceId": "utt-viseme", "timestamp": 10, "visemes": [{ "viseme": "sil", "weight": 0.5 }, { "viseme": "PP", "weight": 0.5 }] },
+  { "event": "tts.viseme", "sessionId": "session-viseme", "utteranceId": "utt-viseme", "timestamp": 30, "visemes": [{ "viseme": "aa", "weight": 1 }] },
+  { "event": "tts.end", "sessionId": "session-viseme", "utteranceId": "utt-viseme" }
+]

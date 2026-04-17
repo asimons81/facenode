@@ -1,0 +1,7 @@
+[
+  { "event": "ready", "sessionId": "session-thinking" },
+  { "event": "llm.start", "sessionId": "session-thinking" },
+  { "event": "tts.start", "sessionId": "session-thinking", "utteranceId": "utt-thinking" },
+  { "event": "tts.chunk", "sessionId": "session-thinking", "utteranceId": "utt-thinking", "text": "Skipping llm end", "amplitude": 0.28 },
+  { "event": "tts.end", "sessionId": "session-thinking", "utteranceId": "utt-thinking" }
+]
