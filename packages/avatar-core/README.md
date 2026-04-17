@@ -9,6 +9,7 @@ This package has no browser or Node.js-specific dependencies — it is safe to i
 - **`AvatarEventSchema`** — Zod discriminated union validating all 11 avatar lifecycle and lip-sync event types
 - **`RuntimeEventEnvelopeSchema`** — canonical Runtime Contract v1 envelope used on transport-facing paths
 - **`RuntimeDiagnosticsSchema`** — runtime health snapshot schema used alongside envelopes on transport-facing paths
+- **`RuntimeEventProducer`** — small producer-facing helper for sequenced, correlated envelope authoring
 - **`AvatarStateMachine`** — typed state machine with `on(state, cb)` and `onChange(cb)` subscriptions
 - **`reduceEvent`** — pure function mapping `(state, event) → nextState`
 - **`AnimationController`** — interface for Three.js (or any renderer) to implement
@@ -26,6 +27,7 @@ pnpm add @facenode/avatar-core
 ```ts
 import {
   AvatarStateMachine,
+  createRuntimeEventProducer,
   extractAvatarEvent,
   parseRuntimeTransportMessage,
 } from '@facenode/avatar-core';
@@ -41,6 +43,9 @@ const message = parseRuntimeTransportMessage(JSON.parse(rawMessage));
 if (message && !('kind' in message)) {
   machine.transition(extractAvatarEvent(message));
 }
+
+const producer = createRuntimeEventProducer({ source: 'demo-producer' });
+const envelope = producer.speechChunk({ text: 'hello', amplitude: 0.5 });
 ```
 
 See [ARCHITECTURE.md](../../ARCHITECTURE.md) for the full state transition table and event flow.

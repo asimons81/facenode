@@ -29,6 +29,16 @@ export type {
 export { AvatarConfigSchema, defaultConfig } from './config.js';
 export type { AvatarConfig } from './config.js';
 
+export { RuntimeEventProducer, createRuntimeEventProducer } from './producer.js';
+export type {
+  RuntimeEventProducerOptions,
+  RuntimeCorrelation,
+  RuntimeEnvelopeAuthoringOptions,
+  SpeechStartOptions,
+  SpeechChunkOptions,
+  VisemeFrameOptions,
+} from './producer.js';
+
 export type { AvatarState } from './stateMachine.js';
 export { AvatarStateMachine } from './stateMachine.js';
 
