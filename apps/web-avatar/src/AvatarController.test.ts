@@ -210,6 +210,7 @@ describe('AvatarController model hot-swap', () => {
   });
 
   it('does not run audio or viseme side effects for invalid events while disconnected', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const controller = new AvatarController({} as HTMLElement);
     const animation = mocks.animationControllers[0]!;
     const analyzer = mocks.amplitudeAnalyzers[0]!;
@@ -225,5 +226,6 @@ describe('AvatarController model hot-swap', () => {
     expect(analyzer.connect).not.toHaveBeenCalled();
     expect(analyzer.disconnect).not.toHaveBeenCalled();
     expect(animation.applyVisemeFrame).not.toHaveBeenCalled();
+    warn.mockRestore();
   });
 });
