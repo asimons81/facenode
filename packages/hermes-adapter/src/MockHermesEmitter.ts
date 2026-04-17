@@ -22,7 +22,7 @@
  *          pnpm mock --hermes-mode  (Hermes payload mode)
  */
 import { WebSocketServer, WebSocket } from 'ws';
-import { createRuntimeEventEnvelope } from '@facenode/avatar-core';
+import { createRuntimeEventProducer } from '@facenode/avatar-core';
 import type { AvatarEvent } from '@facenode/avatar-core';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -116,7 +116,9 @@ export class MockHermesEmitter {
   private readonly clients = new Set<WebSocket>();
   private abort: AbortController | null = null;
   private readonly hermesMode: boolean;
-  private runtimeSequence = 0;
+  private readonly runtimeProducer = createRuntimeEventProducer({
+    source: 'mock-hermes-emitter',
+  });
 
   constructor(private readonly options: MockHermesEmitterOptions) {
     this.hermesMode = options.hermesMode ?? false;
@@ -132,7 +134,7 @@ export class MockHermesEmitter {
       if (this.hermesMode) {
         this.sendRaw(client, JSON.stringify({ event: 'ready' }));
       } else {
-        this.sendRaw(client, JSON.stringify(this.toRuntimeEnvelope({ type: 'connected' })));
+        this.sendRaw(client, JSON.stringify(this.runtimeProducer.connected()));
       }
 
       client.on('close', () => this.clients.delete(client));
@@ -185,7 +187,7 @@ export class MockHermesEmitter {
       if (!hermes) return; // skip if no mapping
       payload = JSON.stringify(hermes);
     } else {
-      payload = JSON.stringify(this.toRuntimeEnvelope(event));
+      payload = JSON.stringify(this.runtimeProducer.event(event));
     }
 
     const label =
@@ -221,14 +223,6 @@ export class MockHermesEmitter {
         resolve();
       }, ms);
       signal.addEventListener('abort', onAbort);
-    });
-  }
-
-  private toRuntimeEnvelope(event: AvatarEvent) {
-    this.runtimeSequence += 1;
-    return createRuntimeEventEnvelope(event, {
-      source: 'mock-hermes-emitter',
-      sequence: this.runtimeSequence,
     });
   }
 

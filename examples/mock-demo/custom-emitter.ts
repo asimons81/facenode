@@ -5,7 +5,7 @@
  *
  * Run: npx tsx custom-emitter.ts
  */
-import { createRuntimeEventEnvelope } from '@facenode/avatar-core';
+import { createRuntimeEventProducer } from '@facenode/avatar-core';
 
 // MockHermesEmitter accepts a SEQUENCE of steps (event | wait) but those are
 // internal. For full control, subclass it or use HermesAdapterServer + explicit runtime envelopes:
@@ -13,6 +13,7 @@ import { createRuntimeEventEnvelope } from '@facenode/avatar-core';
 import { HermesAdapterServer } from '../../packages/hermes-adapter/src/server.js';
 
 const PORT = 3456;
+const producer = createRuntimeEventProducer({ source: 'custom-emitter' });
 
 const server = new HermesAdapterServer({ port: PORT });
 await server.start();
@@ -23,10 +24,10 @@ console.log('[custom-emitter] Sending custom sequence in 2 seconds…');
 await sleep(2000);
 
 // Custom sequence: jump straight to speaking
-server.broadcast(runtimeEvent({ type: 'connected' }));
+server.broadcast(producer.connected());
 await sleep(500);
 
-server.broadcast(runtimeEvent({ type: 'speech_start' }));
+server.broadcast(producer.speechStart());
 await sleep(300);
 
 const lines = [
@@ -37,27 +38,17 @@ const lines = [
 ];
 
 for (const line of lines) {
-  server.broadcast(runtimeEvent({ type: 'speech_chunk', text: line.text, amplitude: line.amplitude }));
+  server.broadcast(producer.speechChunk({ text: line.text, amplitude: line.amplitude }));
   await sleep(600);
 }
 
-server.broadcast(runtimeEvent({ type: 'speech_end' }));
+server.broadcast(producer.speechEnd());
 await sleep(2000);
 
-server.broadcast(runtimeEvent({ type: 'disconnected' }));
+server.broadcast(producer.disconnected());
 await server.stop();
 console.log('[custom-emitter] Done.');
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
-let runtimeSequence = 0;
-
-function runtimeEvent(event: Parameters<typeof createRuntimeEventEnvelope>[0]) {
-  runtimeSequence += 1;
-  return createRuntimeEventEnvelope(event, {
-    source: 'custom-emitter',
-    sequence: runtimeSequence,
-  });
 }
