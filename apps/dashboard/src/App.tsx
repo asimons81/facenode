@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { AvatarController } from '@facenode/web-avatar';
 import { HermesAdapterClient } from '@facenode/hermes-adapter';
 import type { WsStatus } from '@facenode/hermes-adapter';
-import type { AvatarState, AvatarEvent } from '@facenode/avatar-core';
+import type { AvatarState, AvatarEvent, RuntimeDiagnostics } from '@facenode/avatar-core';
 import { useConfig } from './hooks/useConfig.js';
 import { ControlPanel } from './panels/ControlPanel.js';
 import { DebugPanel } from './panels/DebugPanel.js';
@@ -37,6 +37,7 @@ export function App() {
 
   const [avatarState, setAvatarState] = useState<AvatarState>('disconnected');
   const [wsStatus, setWsStatus] = useState<WsStatus>('disconnected');
+  const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<RuntimeDiagnostics | null>(null);
   const [log, setLog] = useState<LogEntry[]>([]);
 
   const pushLog = useCallback((event: AvatarEvent) => {
@@ -90,6 +91,7 @@ export function App() {
       url: config.wsUrl,
       controller: ctrl,
       onStatusChange: (status) => setWsStatus(status),
+      onRuntimeDiagnosticsChange: (diagnostics) => setRuntimeDiagnostics(diagnostics),
     });
     adapterRef.current = adapter;
     adapter.connect();
@@ -240,6 +242,7 @@ export function App() {
       <DebugPanel
         wsStatus={wsStatus}
         avatarState={avatarState}
+        runtimeDiagnostics={runtimeDiagnostics}
         log={log}
       />
     </div>

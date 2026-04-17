@@ -1,5 +1,5 @@
 import React from 'react';
-import type { AvatarState } from '@facenode/avatar-core';
+import type { AvatarState, RuntimeDiagnostics } from '@facenode/avatar-core';
 import type { WsStatus } from '@facenode/hermes-adapter';
 import { C } from '../components/Primitives.js';
 
@@ -13,6 +13,7 @@ export interface LogEntry {
 interface DebugPanelProps {
   wsStatus: WsStatus;
   avatarState: AvatarState;
+  runtimeDiagnostics: RuntimeDiagnostics | null;
   log: LogEntry[];
 }
 
@@ -32,7 +33,13 @@ const WS_COLORS: Record<WsStatus, string> = {
   error:       C.danger,
 };
 
-export function DebugPanel({ wsStatus, avatarState, log }: DebugPanelProps) {
+function formatAcceptedEvent(diagnostics: RuntimeDiagnostics | null): string {
+  const event = diagnostics?.lastAcceptedEvent;
+  if (!event) return 'none';
+  return `${event.sequence} · ${event.event.type}`;
+}
+
+export function DebugPanel({ wsStatus, avatarState, runtimeDiagnostics, log }: DebugPanelProps) {
   return (
     <div style={{
       width: '280px',
@@ -86,6 +93,25 @@ export function DebugPanel({ wsStatus, avatarState, log }: DebugPanelProps) {
           }}>
             {avatarState}
           </span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ color: C.textDim }}>Runtime</span>
+          <span style={{
+            color: C.text,
+            fontWeight: 600,
+            textTransform: 'uppercase',
+            fontSize: '10px',
+          }}>
+            {runtimeDiagnostics?.connectionState ?? 'unknown'}
+          </span>
+        </div>
+        <div style={{ color: C.textDim, lineHeight: 1.5 }}>
+          <div>Last accepted: <span style={{ color: C.text }}>{formatAcceptedEvent(runtimeDiagnostics)}</span></div>
+          <div>Dropped: <span style={{ color: C.text }}>{runtimeDiagnostics?.droppedPayloadCount ?? 0}</span></div>
+          <div>Last drop: <span style={{ color: C.text }}>{runtimeDiagnostics?.lastDropReason ?? 'none'}</span></div>
+          <div>Reconnects: <span style={{ color: C.text }}>{runtimeDiagnostics?.reconnectAttempts ?? 0}</span></div>
+          <div>Session: <span style={{ color: C.text }}>{runtimeDiagnostics?.sessionId ?? 'n/a'}</span></div>
+          <div>Utterance: <span style={{ color: C.text }}>{runtimeDiagnostics?.utteranceId ?? 'n/a'}</span></div>
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { AvatarEvent, AvatarState } from '@facenode/avatar-core';
+import type { AvatarEvent, AvatarState, RuntimeDiagnostics } from '@facenode/avatar-core';
 import { HermesAdapterClient } from '@facenode/hermes-adapter';
 import type { WsStatus } from '@facenode/hermes-adapter';
 import { AvatarController } from './AvatarController.js';
@@ -190,6 +190,7 @@ export default function App() {
 
   const [wsUrl, setWsUrl] = useState('ws://localhost:3456');
   const [wsStatus, setWsStatus] = useState<WsStatus>('disconnected');
+  const [runtimeDiagnostics, setRuntimeDiagnostics] = useState<RuntimeDiagnostics | null>(null);
 
   // ── Init AvatarController ──────────────────────────────────────────────────
 
@@ -233,7 +234,11 @@ export default function App() {
     // Tear down any existing connection first
     adapterRef.current?.disconnect();
 
-    const adapter = new HermesAdapterClient({ url: wsUrl, controller: ctrl });
+    const adapter = new HermesAdapterClient({
+      url: wsUrl,
+      controller: ctrl,
+      onRuntimeDiagnosticsChange: setRuntimeDiagnostics,
+    });
     adapterRef.current = adapter;
 
     adapter.onStatusChange(setWsStatus);
@@ -272,10 +277,32 @@ export default function App() {
           <span style={S.dot(wsColor)} />
           {'WS: ' + wsStatus}
         </div>
+        <div style={S.badge('#9ba3b5')}>
+          <span style={S.dot(runtimeDiagnostics?.lastDropReason ? '#e05c5c' : '#9ba3b5')} />
+          {`RT: ${runtimeDiagnostics?.connectionState ?? 'unknown'} / drop ${runtimeDiagnostics?.droppedPayloadCount ?? 0}`}
+        </div>
       </div>
 
       {/* Caption */}
       <div style={S.caption(captionVisible)}>{caption}</div>
+
+      <div style={{
+        position: 'absolute',
+        bottom: 92,
+        left: 20,
+        fontFamily: font,
+        fontSize: 10,
+        color: '#9ba3b5',
+        background: 'rgba(0,0,0,0.62)',
+        border: '1px solid rgba(155,163,181,0.2)',
+        borderRadius: 4,
+        padding: '6px 10px',
+        lineHeight: 1.5,
+        whiteSpace: 'pre-line',
+        pointerEvents: 'none',
+      }}>
+        {`last: ${runtimeDiagnostics?.lastAcceptedEvent?.event.type ?? 'none'}\nsession: ${runtimeDiagnostics?.sessionId ?? 'n/a'}\nutterance: ${runtimeDiagnostics?.utteranceId ?? 'n/a'}`}
+      </div>
 
       {/* Dev panel */}
       <div style={S.devPanel}>

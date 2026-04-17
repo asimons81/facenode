@@ -13,7 +13,7 @@ Tired of talking to a faceless text box? FaceNode renders a 3D avatar that actua
 - **Real-time 3D avatar** — procedural head (no assets required) or drop in any glTF/GLB model
 - **State machine** — `disconnected → idle → listening → thinking → speaking → error` with clean lifecycle hooks
 - **Dual-layer lip sync** — Layer 1: amplitude envelope (works with any TTS); Layer 2: OVR viseme frames (15-viseme set) with automatic Layer 1 fallback
-- **Hermes adapter** — connects to a live Hermes AI agent via WebSocket with automatic reconnection, OR runs a scripted mock loop for development
+- **Hermes-first runtime** — connects to a live Hermes AI agent via WebSocket, normalizes Hermes payloads into Runtime Contract v1 envelopes, and exposes runtime diagnostics for reconnect/drop visibility
 - **Live dashboard** — three-column layout (controls · avatar · debug log), all config hot-applied, export/import/reset presets, localStorage persistence
 - **Fully typed** — TypeScript strict mode throughout, Zod runtime validation on every event
 
@@ -80,7 +80,7 @@ facenode/
 
 ## How it works
 
-**Event flow.** A Hermes AI agent emits JSON events (`tts.chunk`, `llm.start`, etc.) to `HermesAdapterServer` over WebSocket. The server translates them into typed `AvatarEvent` objects (validated with Zod) and rebroadcasts them to all connected avatar clients. `HermesAdapterClient` in the browser receives these, dispatches them to `AvatarController`, and the state machine drives every animation transition.
+**Event flow.** A Hermes AI agent emits JSON events (`tts.chunk`, `llm.start`, etc.) to `HermesAdapterServer` over WebSocket. The server validates and normalizes them immediately into versioned runtime envelopes, tracks drop/reconnect diagnostics, and rebroadcasts the envelopes plus runtime health snapshots to connected avatar clients. `HermesAdapterClient` in the browser enforces envelope ordering, unwraps the typed `AvatarEvent`, and dispatches it to `AvatarController`, where the state machine drives every animation transition.
 
 **Lip sync.** The system runs two parallel layers. Layer 1 is always active: an amplitude envelope from each `speech_chunk.amplitude` value drives a mouth-open morph target via a double-sine simulation at 60 fps. Layer 2 activates when `viseme_frame` events arrive with OVR phoneme weights; the `ThreeAnimationController` lerps between frames and automatically falls back to Layer 1 if no viseme frame is received for more than 100 ms.
 

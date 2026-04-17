@@ -29,13 +29,14 @@ Hermes AI agent
     │  WS (Hermes-format JSON)
     ▼
 HermesAdapterServer          packages/hermes-adapter
-    │  mapHermesPayload()
-    │  AvatarEventSchema.safeParse()
-    │  WS (AvatarEvent JSON, broadcast)
+    │  normalizeIncomingPayload()
+    │  RuntimeEventEnvelopeSchema.safeParse()
+    │  WS (RuntimeEventEnvelope + runtime diagnostics)
     ▼
 HermesAdapterClient          packages/hermes-adapter (browser)
-    │  AvatarEventSchema.safeParse()
-    │  controller.dispatch(event)
+    │  RuntimeTransportMessageSchema.safeParse()
+    │  sequence / drop enforcement
+    │  controller.dispatch(envelope.event)
     ▼
 AvatarController             apps/web-avatar
     │  machine.transition(event)
@@ -49,9 +50,11 @@ Three.js scene               apps/web-avatar
 ```
 
 **MockHermesEmitter** (`packages/hermes-adapter`) can stand in for a live Hermes
-instance. With `hermesMode: false` (default) it emits AvatarEvent JSON directly to
-HermesAdapterClient. With `hermesMode: true` it emits Hermes-format JSON and must
-be fronted by a HermesAdapterServer to exercise the translation path.
+instance. With `hermesMode: false` (default) it emits legacy `AvatarEvent` JSON
+directly to HermesAdapterClient for quick local demos. With `hermesMode: true` it
+emits Hermes-format JSON and must be fronted by a HermesAdapterServer, which is the
+canonical Hermes-first runtime path and the point where Runtime Contract v1
+envelopes and diagnostics are assigned.
 
 ---
 
