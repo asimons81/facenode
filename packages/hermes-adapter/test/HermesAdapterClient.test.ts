@@ -33,9 +33,13 @@ class FakeWebSocket {
   emitMessage(data: unknown): void {
     this.onmessage?.({ data: JSON.stringify(data) });
   }
+
+  emitRawMessage(data: string): void {
+    this.onmessage?.({ data });
+  }
 }
 
-describe('HermesAdapterClient disconnect lifecycle', () => {
+describe('HermesAdapterClient transport handling', () => {
   const originalWebSocket = globalThis.WebSocket;
 
   beforeEach(() => {
@@ -93,6 +97,10 @@ describe('HermesAdapterClient disconnect lifecycle', () => {
         },
       ],
     ]);
+    expect(client.runtimeDiagnostics).toMatchObject({
+      connectionState: 'error',
+      reconnectAttempts: 5,
+    });
   });
 
   it('tears down the prior socket before a manual reconnect and notifies both status listeners', () => {
@@ -140,6 +148,25 @@ describe('HermesAdapterClient disconnect lifecycle', () => {
     expect(client.runtimeDiagnostics).toMatchObject({
       droppedPayloadCount: 1,
       lastDropReason: 'invalid_runtime_payload',
+    });
+  });
+
+  it('rejects malformed JSON payloads on the runtime transport path', () => {
+    const controller = { dispatch: vi.fn() };
+    const client = new HermesAdapterClient({
+      url: 'ws://localhost:3456',
+      controller,
+    });
+
+    client.connect();
+    const ws = FakeWebSocket.instances[0]!;
+    ws.emitOpen();
+    ws.emitRawMessage('{bad json');
+
+    expect(controller.dispatch).not.toHaveBeenCalled();
+    expect(client.runtimeDiagnostics).toMatchObject({
+      droppedPayloadCount: 1,
+      lastDropReason: 'invalid_json',
     });
   });
 
@@ -206,6 +233,79 @@ describe('HermesAdapterClient disconnect lifecycle', () => {
       utteranceId: 'utt-1',
     });
     expect(controller.dispatch).not.toHaveBeenCalled();
+  });
+
+  it('clears stale utterance correlation when a later envelope omits it', () => {
+    const controller = { dispatch: vi.fn() };
+    const client = new HermesAdapterClient({
+      url: 'ws://localhost:3456',
+      controller,
+    });
+
+    client.connect();
+    const ws = FakeWebSocket.instances[0]!;
+    ws.emitOpen();
+    ws.emitMessage({
+      version: 1,
+      source: 'hermes-adapter',
+      sequence: 1,
+      timestamp: 1000,
+      sessionId: 'session-1',
+      utteranceId: 'utt-1',
+      event: { type: 'speech_start' },
+    });
+    ws.emitMessage({
+      version: 1,
+      source: 'hermes-adapter',
+      sequence: 2,
+      timestamp: 1001,
+      sessionId: 'session-1',
+      event: { type: 'disconnected' },
+    });
+
+    expect(client.runtimeDiagnostics).toMatchObject({
+      sessionId: 'session-1',
+      utteranceId: undefined,
+      lastAcceptedEvent: expect.objectContaining({
+        sequence: 2,
+        event: { type: 'disconnected' },
+      }),
+    });
+  });
+
+  it('drops duplicate runtime envelopes with an explicit drop reason', () => {
+    const controller = { dispatch: vi.fn() };
+    const client = new HermesAdapterClient({
+      url: 'ws://localhost:3456',
+      controller,
+    });
+
+    client.connect();
+    const ws = FakeWebSocket.instances[0]!;
+    ws.emitOpen();
+
+    ws.emitMessage({
+      version: 1,
+      source: 'hermes-adapter',
+      sequence: 4,
+      timestamp: 1000,
+      event: { type: 'speech_start' },
+    });
+    ws.emitMessage({
+      version: 1,
+      source: 'hermes-adapter',
+      sequence: 4,
+      timestamp: 1001,
+      event: { type: 'speech_chunk', amplitude: 0.2 },
+    });
+
+    expect(controller.dispatch.mock.calls).toEqual([
+      [{ type: 'speech_start' }],
+    ]);
+    expect(client.runtimeDiagnostics).toMatchObject({
+      droppedPayloadCount: 1,
+      lastDropReason: 'duplicate_runtime_event',
+    });
   });
 
   it('drops out-of-order runtime envelopes with an explicit drop reason', () => {

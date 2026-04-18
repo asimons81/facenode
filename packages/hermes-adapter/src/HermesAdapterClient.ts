@@ -248,8 +248,10 @@ export class HermesAdapterClient {
     const lastSeen = this.lastSequenceBySource.get(envelope.source) ?? -1;
     if (envelope.sequence <= lastSeen) {
       this.recordLocalDrop(
-        'out_of_order_runtime_event',
-        `Received sequence ${envelope.sequence} after ${lastSeen} from ${envelope.source}.`,
+        envelope.sequence === lastSeen ? 'duplicate_runtime_event' : 'out_of_order_runtime_event',
+        envelope.sequence === lastSeen
+          ? `Received duplicate sequence ${envelope.sequence} from ${envelope.source}.`
+          : `Received sequence ${envelope.sequence} after ${lastSeen} from ${envelope.source}.`,
       );
       return false;
     }
@@ -287,16 +289,34 @@ export class HermesAdapterClient {
   private patchDiagnostics(
     patch: Partial<Omit<RuntimeDiagnostics, 'kind' | 'version' | 'source' | 'updatedAt'>>,
   ): void {
+    const hasPatch = <K extends keyof typeof patch>(key: K): boolean =>
+      Object.prototype.hasOwnProperty.call(patch, key);
+
     this.setRuntimeDiagnostics(createRuntimeDiagnostics({
       source: this._runtimeDiagnostics.source,
-      connectionState: patch.connectionState ?? this._runtimeDiagnostics.connectionState,
-      reconnectAttempts: patch.reconnectAttempts ?? this._runtimeDiagnostics.reconnectAttempts,
-      droppedPayloadCount: patch.droppedPayloadCount ?? this._runtimeDiagnostics.droppedPayloadCount,
-      lastDropReason: patch.lastDropReason ?? this._runtimeDiagnostics.lastDropReason,
-      lastDropDetail: patch.lastDropDetail ?? this._runtimeDiagnostics.lastDropDetail,
-      lastAcceptedEvent: patch.lastAcceptedEvent ?? this._runtimeDiagnostics.lastAcceptedEvent,
-      sessionId: patch.sessionId ?? this._runtimeDiagnostics.sessionId,
-      utteranceId: patch.utteranceId ?? this._runtimeDiagnostics.utteranceId,
+      connectionState: hasPatch('connectionState')
+        ? patch.connectionState ?? this._runtimeDiagnostics.connectionState
+        : this._runtimeDiagnostics.connectionState,
+      reconnectAttempts: hasPatch('reconnectAttempts')
+        ? patch.reconnectAttempts ?? this._runtimeDiagnostics.reconnectAttempts
+        : this._runtimeDiagnostics.reconnectAttempts,
+      droppedPayloadCount: hasPatch('droppedPayloadCount')
+        ? patch.droppedPayloadCount ?? this._runtimeDiagnostics.droppedPayloadCount
+        : this._runtimeDiagnostics.droppedPayloadCount,
+      lastDropReason: hasPatch('lastDropReason')
+        ? patch.lastDropReason
+        : this._runtimeDiagnostics.lastDropReason,
+      lastDropDetail: hasPatch('lastDropDetail')
+        ? patch.lastDropDetail
+        : this._runtimeDiagnostics.lastDropDetail,
+      lastAcceptedEvent: hasPatch('lastAcceptedEvent')
+        ? patch.lastAcceptedEvent
+        : this._runtimeDiagnostics.lastAcceptedEvent,
+      sessionId: hasPatch('sessionId') ? patch.sessionId : this._runtimeDiagnostics.sessionId,
+      utteranceId: hasPatch('utteranceId') ? patch.utteranceId : this._runtimeDiagnostics.utteranceId,
     }));
   }
 }
+
+
+

@@ -1,0 +1,45 @@
+[
+  {
+    "version": 1,
+    "source": "runtime-test",
+    "sequence": 6,
+    "timestamp": 1700000000998,
+    "sessionId": "session-runtime",
+    "event": { "type": "connected" }
+  },
+  {
+    "version": 1,
+    "source": "runtime-test",
+    "sequence": 7,
+    "timestamp": 1700000001000,
+    "sessionId": "session-runtime",
+    "utteranceId": "utt-runtime",
+    "event": { "type": "speech_start" }
+  },
+  {
+    "version": 1,
+    "source": "runtime-test",
+    "sequence": 7,
+    "timestamp": 1700000001001,
+    "sessionId": "session-runtime",
+    "utteranceId": "utt-runtime",
+    "event": { "type": "speech_chunk", "amplitude": 0.3 }
+  },
+  {
+    "version": 1,
+    "source": "runtime-test",
+    "sequence": 5,
+    "timestamp": 1700000000999,
+    "sessionId": "session-runtime",
+    "utteranceId": "utt-runtime",
+    "event": { "type": "speech_chunk", "amplitude": 0.2 }
+  },
+  {
+    "version": 1,
+    "source": "runtime-test",
+    "sequence": 8,
+    "timestamp": 1700000001002,
+    "sessionId": "session-runtime",
+    "event": { "type": "speech_end" }
+  }
+]

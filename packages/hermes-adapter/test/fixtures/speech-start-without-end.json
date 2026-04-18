@@ -1,0 +1,6 @@
+[
+  { "event": "ready", "sessionId": "session-cutoff" },
+  { "event": "tts.start", "sessionId": "session-cutoff", "utteranceId": "utt-cutoff" },
+  { "event": "tts.chunk", "text": "Cut off", "amplitude": 0.38 },
+  { "event": "disconnect", "sessionId": "session-cutoff" }
+]

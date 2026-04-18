@@ -1,0 +1,8 @@
+[
+  { "event": "ready", "sessionId": "session-carry" },
+  { "event": "tts.start", "sessionId": "session-carry", "utteranceId": "utt-carry", "audio_url": "https://example.com/carry.mp3" },
+  { "event": "tts.chunk", "text": "carry", "amplitude": 0.51 },
+  { "event": "tts.viseme", "timestamp": 240, "visemes": [{ "viseme": "aa", "weight": 0.8 }] },
+  { "event": "tts.end" },
+  { "event": "llm.start" }
+]

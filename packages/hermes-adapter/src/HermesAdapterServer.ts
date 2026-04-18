@@ -78,6 +78,7 @@ export class HermesAdapterServer {
   private hermesRetryCount = 0;
   private hermesRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private hermesIntentionalClose = false;
+  private hermesOutageSignaled = false;
 
   constructor(private readonly options: HermesAdapterServerOptions) {
     this.diagnostics = createInitialDiagnostics(
@@ -109,6 +110,7 @@ export class HermesAdapterServer {
 
     if (this.options.hermesWsUrl) {
       this.hermesIntentionalClose = false;
+      this.hermesOutageSignaled = false;
       this.hermesRetryCount = 0;
       this.updateDiagnostics({ connectionState: 'connecting', reconnectAttempts: 0 });
       try {
@@ -133,6 +135,7 @@ export class HermesAdapterServer {
     this.updateDiagnostics({
       connectionState: 'disconnected',
       reconnectAttempts: this.hermesRetryCount,
+      utteranceId: undefined,
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -190,6 +193,7 @@ export class HermesAdapterServer {
       if (this.hermesIntentionalClose || !connected) return;
       console.warn('[HermesAdapterServer] Hermes upstream closed — scheduling reconnect.');
       this.hermesWs = null;
+      this.signalTransportDisconnect();
       this.updateDiagnostics({
         connectionState: 'reconnecting',
         reconnectAttempts: this.hermesRetryCount,
@@ -206,6 +210,7 @@ export class HermesAdapterServer {
     await new Promise<void>((resolve, reject) => {
       ws.once('open', () => {
         connected = true;
+        this.hermesOutageSignaled = false;
         this.hermesRetryCount = 0;
         this.updateDiagnostics({
           connectionState: 'connected',
@@ -240,6 +245,7 @@ export class HermesAdapterServer {
         `[HermesAdapterServer] Max retries (${HERMES_MAX_RETRIES}) exhausted — giving up on Hermes connection.`,
       );
       this.clearHermesRetryTimer();
+      this.signalTransportDisconnect();
       this.updateDiagnostics({
         connectionState: 'error',
         reconnectAttempts: HERMES_MAX_RETRIES,
@@ -304,18 +310,54 @@ export class HermesAdapterServer {
   private updateDiagnostics(
     patch: Partial<Omit<RuntimeDiagnostics, 'kind' | 'version' | 'source' | 'updatedAt'>>,
   ): void {
+    const hasPatch = <K extends keyof typeof patch>(key: K): boolean =>
+      Object.prototype.hasOwnProperty.call(patch, key);
+
     this.diagnostics = createRuntimeDiagnostics({
       source: this.runtimeSource,
-      connectionState: patch.connectionState ?? this.diagnostics.connectionState,
-      reconnectAttempts: patch.reconnectAttempts ?? this.diagnostics.reconnectAttempts,
-      droppedPayloadCount: patch.droppedPayloadCount ?? this.diagnostics.droppedPayloadCount,
-      lastDropReason: patch.lastDropReason ?? this.diagnostics.lastDropReason,
-      lastDropDetail: patch.lastDropDetail ?? this.diagnostics.lastDropDetail,
-      lastAcceptedEvent: patch.lastAcceptedEvent ?? this.diagnostics.lastAcceptedEvent,
-      sessionId: patch.sessionId ?? this.diagnostics.sessionId,
-      utteranceId: patch.utteranceId ?? this.diagnostics.utteranceId,
+      connectionState: hasPatch('connectionState')
+        ? patch.connectionState ?? this.diagnostics.connectionState
+        : this.diagnostics.connectionState,
+      reconnectAttempts: hasPatch('reconnectAttempts')
+        ? patch.reconnectAttempts ?? this.diagnostics.reconnectAttempts
+        : this.diagnostics.reconnectAttempts,
+      droppedPayloadCount: hasPatch('droppedPayloadCount')
+        ? patch.droppedPayloadCount ?? this.diagnostics.droppedPayloadCount
+        : this.diagnostics.droppedPayloadCount,
+      lastDropReason: hasPatch('lastDropReason')
+        ? patch.lastDropReason
+        : this.diagnostics.lastDropReason,
+      lastDropDetail: hasPatch('lastDropDetail')
+        ? patch.lastDropDetail
+        : this.diagnostics.lastDropDetail,
+      lastAcceptedEvent: hasPatch('lastAcceptedEvent')
+        ? patch.lastAcceptedEvent
+        : this.diagnostics.lastAcceptedEvent,
+      sessionId: hasPatch('sessionId') ? patch.sessionId : this.diagnostics.sessionId,
+      utteranceId: hasPatch('utteranceId') ? patch.utteranceId : this.diagnostics.utteranceId,
     });
     this.broadcastDiagnostics();
+  }
+
+  private signalTransportDisconnect(): void {
+    if (this.hermesOutageSignaled) return;
+    this.hermesOutageSignaled = true;
+
+    const envelope = createRuntimeEventEnvelope(
+      { type: 'disconnected' },
+      {
+        source: this.runtimeSource,
+        sequence: this.nextRuntimeSequence(),
+        sessionId: this.correlation.sessionId,
+      },
+    );
+
+    this.correlation = {
+      sessionId: this.correlation.sessionId,
+      utteranceId: undefined,
+    };
+    this.broadcastJson(envelope);
+    this.recordAcceptedEnvelope(envelope);
   }
 
   private broadcastJson(payload: RuntimeEventEnvelope | RuntimeDiagnostics): void {
@@ -345,3 +387,8 @@ export class HermesAdapterServer {
     client.once('open', sendWhenReady);
   }
 }
+
+
+
+
+

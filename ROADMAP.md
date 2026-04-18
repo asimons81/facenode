@@ -1,61 +1,18 @@
 # FaceNode Roadmap
 
-## Current reality
+## Current status
 
-FaceNode already has the right core shape:
+Milestone 1 and Milestone 2 of the Hermes-first runtime work are complete:
 
-- `avatar-core` defines the event/state contract and shared config
-- `hermes-adapter` translates Hermes payloads and handles transport
-- `web-avatar` renders and animates the avatar
-- `dashboard` proves the controller can be configured live
+- Runtime Contract v1 is versioned and documented.
+- Hermes payload normalization is explicit and fixture-covered.
+- Runtime diagnostics now expose connection state, reconnect attempts, last accepted event, drop visibility, and session/utterance correlation.
+- Runtime envelope ordering, duplicate handling, and malformed transport rejection are intentional and tested.
+- Upstream Hermes disconnects reset downstream avatar lifecycle deterministically before reconnect.
 
-The problem is not that the architecture is wrong. The problem is that the
-runtime contract is still too implicit, Hermes is not yet treated as the
-product-default runtime path, and the embeddable surface still lives inside an
-app package rather than a dedicated runtime package.
+The next meaningful step is Milestone 3, not more Milestone 2 cleanup.
 
-## Next major upgrade wave
-
-### Milestone 1: Runtime contract v1
-
-Goal: make the event contract stable, versioned, and testable before adding
-more breadth.
-
-Deliver:
-
-- Versioned runtime envelope for FaceNode events
-- Explicit Hermes-to-runtime mapping spec
-- Event/session/utterance correlation fields
-- Contract fixtures and compatibility tests
-- Runtime docs for producers and consumers
-
-Primary packages:
-
-- `packages/avatar-core`
-- `packages/hermes-adapter`
-- `ARCHITECTURE.md`
-- `README.md`
-
-### Milestone 2: Hermes-first runtime hardening
-
-Goal: make Hermes the reliable flagship integration path instead of one adapter
-among many.
-
-Deliver:
-
-- Hermes protocol surface clarified and documented
-- Better upstream lifecycle handling and observability
-- Stronger message validation, drop reasons, and reconnect semantics
-- Hermes integration fixtures covering realistic event sequences
-- Dashboard and renderer defaults tuned for Hermes-first usage
-
-Primary packages:
-
-- `packages/hermes-adapter`
-- `apps/dashboard`
-- `apps/web-avatar`
-
-### Milestone 3: Realism pass
+## Milestone 3: Realism pass
 
 Goal: improve human realism through timing, audio, and expression behavior.
 
@@ -73,10 +30,9 @@ Primary packages:
 - `apps/web-avatar`
 - `apps/dashboard`
 
-### Milestone 4: Embeddable runtime surface
+## Milestone 4: Embeddable runtime surface
 
-Goal: make FaceNode easy to drop into another product without dragging the
-dashboard along.
+Goal: make FaceNode easy to embed into another product without dragging the dashboard along.
 
 Deliver:
 
@@ -98,15 +54,4 @@ Primary packages:
 - WASM phoneme extraction
 - Streaming glTF and large-scale asset delivery work
 
-Those are valid later bets, but none of them matter if the Hermes runtime
-contract is still squishy.
-
-## What should not be prioritized yet
-
-- Broad adapter matrix work
-- Native mobile experiences
-- Heavy cloud orchestration features
-- Deep avatar asset pipeline work
-
-FaceNode should first become the best way to render a Hermes-backed talking
-head reliably.
+Hermes depth still matters more than adapter breadth, but the next investment should improve realism and embeddability rather than revisit Milestone 2 basics.

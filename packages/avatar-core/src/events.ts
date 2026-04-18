@@ -54,6 +54,7 @@ export const RuntimeDropReasonSchema = z.enum([
   'invalid_runtime_payload',
   'unknown_hermes_event',
   'invalid_hermes_payload',
+  'duplicate_runtime_event',
   'out_of_order_runtime_event',
 ]);
 
@@ -206,3 +207,4 @@ function formatZodError(error: z.ZodError): string {
     })
     .join('; ');
 }
+

@@ -2,7 +2,11 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { reduceEvent } from '@facenode/avatar-core';
-import type { AvatarState, RuntimeDropReason, RuntimeEventEnvelope } from '@facenode/avatar-core';
+import type {
+  AvatarState,
+  RuntimeDropReason,
+  RuntimeEventEnvelope,
+} from '@facenode/avatar-core';
 import { normalizeIncomingPayload } from '../src/hermesProtocol.js';
 import type { HermesCorrelationState } from '../src/hermesProtocol.js';
 
@@ -10,6 +14,7 @@ interface TranscriptResult {
   accepted: RuntimeEventEnvelope[];
   dropped: Array<{ reason: RuntimeDropReason; detail: string }>;
   states: AvatarState[];
+  finalCorrelation: HermesCorrelationState;
 }
 
 function runFixture(name: string): TranscriptResult {
@@ -19,13 +24,27 @@ function runFixture(name: string): TranscriptResult {
   let sequence = 0;
   let state: AvatarState = 'disconnected';
   let correlation: HermesCorrelationState = {};
+  const lastSequenceBySource = new Map<string, number>();
 
   const accepted: RuntimeEventEnvelope[] = [];
   const dropped: Array<{ reason: RuntimeDropReason; detail: string }> = [];
   const states: AvatarState[] = [];
 
-  for (const payload of transcript) {
-    const result = normalizeIncomingPayload(payload, {
+  for (const frame of transcript) {
+    let raw = frame;
+    if (typeof frame === 'string') {
+      try {
+        raw = JSON.parse(frame) as unknown;
+      } catch (error) {
+        dropped.push({
+          reason: 'invalid_json',
+          detail: `Invalid JSON payload: ${(error as Error).message}`,
+        });
+        continue;
+      }
+    }
+
+    const result = normalizeIncomingPayload(raw, {
       source: 'hermes-adapter',
       correlation,
       nextSequence: () => ++sequence,
@@ -37,13 +56,28 @@ function runFixture(name: string): TranscriptResult {
       continue;
     }
 
+    const envelope = result.value.envelope;
+    const lastSeen = lastSequenceBySource.get(envelope.source) ?? -1;
+    if (envelope.sequence <= lastSeen) {
+      dropped.push({
+        reason: envelope.sequence === lastSeen
+          ? 'duplicate_runtime_event'
+          : 'out_of_order_runtime_event',
+        detail: envelope.sequence === lastSeen
+          ? `Received duplicate sequence ${envelope.sequence} from ${envelope.source}.`
+          : `Received sequence ${envelope.sequence} after ${lastSeen} from ${envelope.source}.`,
+      });
+      continue;
+    }
+
+    lastSequenceBySource.set(envelope.source, envelope.sequence);
     correlation = result.value.correlation;
-    accepted.push(result.value.envelope);
-    state = reduceEvent(state, result.value.envelope.event);
+    accepted.push(envelope);
+    state = reduceEvent(state, envelope.event);
     states.push(state);
   }
 
-  return { accepted, dropped, states };
+  return { accepted, dropped, states, finalCorrelation: correlation };
 }
 
 describe('Hermes transcript fixtures', () => {
@@ -68,6 +102,7 @@ describe('Hermes transcript fixtures', () => {
       utteranceId: 'utt-happy',
       event: { type: 'speech_start' },
     });
+    expect(result.finalCorrelation).toEqual({ sessionId: 'session-happy', utteranceId: undefined });
   });
 
   it('handles reconnect during speech as explicit lifecycle events', () => {
@@ -84,6 +119,11 @@ describe('Hermes transcript fixtures', () => {
       'speech_chunk',
       'speech_end',
     ]);
+    expect(result.accepted[4]).toMatchObject({
+      event: { type: 'disconnected' },
+      sessionId: 'session-reconnect',
+      utteranceId: undefined,
+    });
     expect(result.states).toEqual([
       'idle',
       'thinking',
@@ -108,6 +148,25 @@ describe('Hermes transcript fixtures', () => {
       'speech_end',
     ]);
     expect(result.states).toEqual(['idle', 'thinking', 'speaking', 'speaking', 'idle']);
+  });
+
+  it('resolves a missing speech_end with an explicit disconnect reset', () => {
+    const result = runFixture('speech-start-without-end');
+
+    expect(result.dropped).toEqual([]);
+    expect(result.accepted.map((entry) => entry.event.type)).toEqual([
+      'connected',
+      'speech_start',
+      'speech_chunk',
+      'disconnected',
+    ]);
+    expect(result.accepted.at(-1)).toMatchObject({
+      event: { type: 'disconnected' },
+      sessionId: 'session-cutoff',
+      utteranceId: undefined,
+    });
+    expect(result.states).toEqual(['idle', 'speaking', 'speaking', 'disconnected']);
+    expect(result.finalCorrelation).toEqual({ sessionId: undefined, utteranceId: undefined });
   });
 
   it('keeps repeated speech_chunk payloads instead of deduping them away', () => {
@@ -146,7 +205,7 @@ describe('Hermes transcript fixtures', () => {
     expect(result.states.at(-1)).toBe('idle');
   });
 
-  it('quarantines malformed and partial payloads with explicit drop reasons', () => {
+  it('quarantines malformed Hermes, unknown Hermes, and malformed runtime payloads with explicit drop reasons', () => {
     const result = runFixture('malformed-partial-drop');
 
     expect(result.accepted.map((entry) => entry.event.type)).toEqual([
@@ -163,4 +222,51 @@ describe('Hermes transcript fixtures', () => {
     expect(result.dropped[0]?.detail).toContain('amplitude');
     expect(result.states.at(-1)).toBe('idle');
   });
+
+  it('drops malformed JSON frames but keeps the transcript recoverable', () => {
+    const result = runFixture('malformed-json-and-recovery');
+
+    expect(result.accepted.map((entry) => entry.event.type)).toEqual([
+      'connected',
+      'speech_start',
+      'speech_end',
+    ]);
+    expect(result.dropped.map((drop) => drop.reason)).toEqual(['invalid_json']);
+    expect(result.states.at(-1)).toBe('idle');
+  });
+
+  it('distinguishes duplicate runtime envelopes from out-of-order ones', () => {
+    const result = runFixture('runtime-envelope-ordering');
+
+    expect(result.accepted.map((entry) => entry.event.type)).toEqual([
+      'connected',
+      'speech_start',
+      'speech_end',
+    ]);
+    expect(result.dropped.map((drop) => drop.reason)).toEqual([
+      'duplicate_runtime_event',
+      'out_of_order_runtime_event',
+    ]);
+    expect(result.states).toEqual(['idle', 'speaking', 'idle']);
+  });
+
+  it('carries session and utterance correlation forward until a lifecycle boundary clears them', () => {
+    const result = runFixture('correlation-carry-forward');
+
+    expect(result.dropped).toEqual([]);
+    expect(result.accepted.map((entry) => ({
+      type: entry.event.type,
+      sessionId: entry.sessionId,
+      utteranceId: entry.utteranceId,
+    }))).toEqual([
+      { type: 'connected', sessionId: 'session-carry', utteranceId: undefined },
+      { type: 'speech_start', sessionId: 'session-carry', utteranceId: 'utt-carry' },
+      { type: 'speech_chunk', sessionId: 'session-carry', utteranceId: 'utt-carry' },
+      { type: 'viseme_frame', sessionId: 'session-carry', utteranceId: 'utt-carry' },
+      { type: 'speech_end', sessionId: 'session-carry', utteranceId: 'utt-carry' },
+      { type: 'thinking_start', sessionId: 'session-carry', utteranceId: undefined },
+    ]);
+    expect(result.finalCorrelation).toEqual({ sessionId: 'session-carry', utteranceId: undefined });
+  });
 });
+

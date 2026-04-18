@@ -97,8 +97,7 @@ vi.mock('ws', () => ({
   WebSocket: mocks.MockWebSocket,
 }));
 
-import { HermesAdapterServer } from '../src/HermesAdapterServer.js';
-import { parseIncomingPayload } from '../src/HermesAdapterServer.js';
+import { HermesAdapterServer, parseIncomingPayload } from '../src/HermesAdapterServer.js';
 
 describe('HermesAdapterServer lifecycle', () => {
   beforeEach(() => {
@@ -195,4 +194,74 @@ describe('HermesAdapterServer lifecycle', () => {
       droppedPayloadCount: 0,
     });
   });
+
+  it('broadcasts a disconnected lifecycle reset when upstream Hermes drops mid-utterance', async () => {
+    const server = new HermesAdapterServer({ port: 9876, hermesWsUrl: 'ws://hermes.local' });
+    await server.start();
+
+    const upstream = mocks.MockWebSocket.instances[0]!;
+    const wss = mocks.MockWebSocketServer.instances[0]!;
+    const client = new mocks.MockWebSocket('ws://client');
+    wss.emit('connection', client);
+
+    upstream.emit('message', Buffer.from(JSON.stringify({
+      event: 'tts.start',
+      sessionId: 'session-live',
+      utteranceId: 'utt-live',
+    })));
+    upstream.emit('close');
+
+    const sentMessages = client.sentPayloads.map((payload) => JSON.parse(payload));
+    expect(sentMessages).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        event: { type: 'speech_start' },
+        sessionId: 'session-live',
+        utteranceId: 'utt-live',
+      }),
+      expect.objectContaining({
+        event: { type: 'disconnected' },
+        sessionId: 'session-live',
+      }),
+      expect.objectContaining({
+        kind: 'runtime_diagnostics',
+        connectionState: 'reconnecting',
+        lastAcceptedEvent: expect.objectContaining({
+          event: { type: 'disconnected' },
+        }),
+      }),
+    ]));
+  });
+
+  it('emits one disconnect reset and then an error when retries are exhausted', async () => {
+    const server = new HermesAdapterServer({ port: 9876, hermesWsUrl: 'ws://hermes.local' });
+    await server.start();
+
+    const upstream = mocks.MockWebSocket.instances[0]!;
+    const wss = mocks.MockWebSocketServer.instances[0]!;
+    const client = new mocks.MockWebSocket('ws://client');
+    wss.emit('connection', client);
+
+    upstream.emit('message', Buffer.from(JSON.stringify({
+      event: 'tts.start',
+      sessionId: 'session-live',
+      utteranceId: 'utt-live',
+    })));
+
+    mocks.MockWebSocket.failConnect = true;
+    upstream.emit('close');
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      await vi.runOnlyPendingTimersAsync();
+    }
+
+    const sentMessages = client.sentPayloads.map((payload) => JSON.parse(payload));
+    const disconnects = sentMessages.filter((payload) => payload.event?.type === 'disconnected');
+    expect(disconnects).toHaveLength(1);
+    expect(server.getRuntimeDiagnostics()).toMatchObject({
+      connectionState: 'error',
+      reconnectAttempts: 5,
+    });
+  });
 });
+
+
+

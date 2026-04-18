@@ -55,7 +55,7 @@ export function normalizeIncomingPayload(
 
   const rawObject = raw as RawObject;
 
-  if (hasHermesEventName(rawObject)) {
+  if (looksLikeHermesPayload(rawObject)) {
     return normalizeHermesPayload(rawObject, context);
   }
 
@@ -93,6 +93,7 @@ function normalizeHermesPayload(
   }
 
   const correlation = resolveCorrelation(raw, context.correlation);
+  const envelopeCorrelation = projectEnvelopeCorrelation(mapped.value, correlation);
   return {
     ok: true,
     value: {
@@ -100,8 +101,8 @@ function normalizeHermesPayload(
         source: context.source,
         sequence: context.nextSequence(),
         timestamp: context.now?.() ?? Date.now(),
-        sessionId: correlation.sessionId,
-        utteranceId: correlation.utteranceId,
+        sessionId: envelopeCorrelation.sessionId,
+        utteranceId: envelopeCorrelation.utteranceId,
       }),
       origin: 'hermes',
       correlation: clearResolvedCorrelation(mapped.value, correlation),
@@ -231,8 +232,8 @@ function normalizeVisemes(rawVisemes: unknown): Array<{ viseme: Viseme; weight: 
   return visemes;
 }
 
-function hasHermesEventName(raw: Record<string, unknown>): raw is RawObject & { event: string } {
-  return typeof raw['event'] === 'string';
+function looksLikeHermesPayload(raw: Record<string, unknown>): raw is RawObject {
+  return 'event' in raw && !('version' in raw);
 }
 
 function resolveCorrelation(
@@ -243,6 +244,20 @@ function resolveCorrelation(
     sessionId: readFirstString(raw, ['sessionId', 'session_id']) ?? current?.sessionId,
     utteranceId: readFirstString(raw, ['utteranceId', 'utterance_id']) ?? current?.utteranceId,
   };
+}
+
+function projectEnvelopeCorrelation(
+  event: AvatarEvent,
+  correlation: HermesCorrelationState,
+): HermesCorrelationState {
+  if (event.type === 'disconnected') {
+    return {
+      sessionId: correlation.sessionId,
+      utteranceId: undefined,
+    };
+  }
+
+  return correlation;
 }
 
 function clearResolvedCorrelation(
@@ -267,3 +282,5 @@ function readFirstString(raw: Record<string, unknown>, keys: string[]): string |
   }
   return undefined;
 }
+
+

@@ -1,0 +1,6 @@
+[
+  "{\"event\":\"ready\",\"sessionId\":\"session-json\"}",
+  "{bad json",
+  "{\"event\":\"tts.start\",\"sessionId\":\"session-json\",\"utteranceId\":\"utt-json\"}",
+  "{\"event\":\"tts.end\",\"sessionId\":\"session-json\",\"utteranceId\":\"utt-json\"}"
+]
