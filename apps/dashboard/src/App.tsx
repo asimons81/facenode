@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { CaptionTimeline, type CaptionSnapshot } from '@facenode/avatar-core';
 import { AvatarController } from '@facenode/web-avatar';
 import { HermesAdapterClient } from '@facenode/hermes-adapter';
 import type { WsStatus } from '@facenode/hermes-adapter';
@@ -256,22 +257,35 @@ interface CaptionDisplayProps {
 }
 
 function CaptionDisplay({ controller }: CaptionDisplayProps) {
-  const [caption, setCaption] = useState('');
+  const [caption, setCaption] = useState<CaptionSnapshot>({ text: '', visible: false });
+  const timelineRef = useRef(new CaptionTimeline());
 
   useEffect(() => {
     const ctrl = controller.current;
     if (!ctrl) return;
 
+    let raf = 0;
+    const tick = () => {
+      const next = timelineRef.current.tick(Date.now());
+      setCaption((prev) => (
+        prev.text === next.text && prev.visible === next.visible ? prev : { ...next }
+      ));
+      raf = window.requestAnimationFrame(tick);
+    };
+    raf = window.requestAnimationFrame(tick);
+
     const unsub = ctrl.onEvent((event) => {
-      if (event.type === 'speech_chunk' && event.text) {
-        setCaption(event.text);
-      } else if (event.type === 'speech_end') {
-        setCaption('');
-      }
+      const next = timelineRef.current.apply(event, Date.now());
+      setCaption((prev) => (
+        prev.text === next.text && prev.visible === next.visible ? prev : { ...next }
+      ));
     });
 
-    return unsub;
+    return () => {
+      window.cancelAnimationFrame(raf);
+      unsub();
+    };
   }, [controller]);
 
-  return <>{caption}</>;
+  return <span style={{ opacity: caption.visible ? 1 : 0, transition: 'opacity 180ms ease' }}>{caption.text}</span>;
 }

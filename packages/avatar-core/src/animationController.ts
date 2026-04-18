@@ -6,6 +6,25 @@ export const VISEMES = [
   'aa', 'E', 'ih', 'oh', 'ou',
 ] as const;
 
+/** Relative mouth openness per OVR viseme for fallback speech shaping. */
+export const VISEME_OPENNESS: Record<(typeof VISEMES)[number], number> = {
+  sil: 0,
+  PP: 0.05,
+  FF: 0.1,
+  TH: 0.15,
+  DD: 0.3,
+  kk: 0.3,
+  CH: 0.35,
+  SS: 0.2,
+  nn: 0.25,
+  RR: 0.4,
+  aa: 1,
+  E: 0.65,
+  ih: 0.55,
+  oh: 0.85,
+  ou: 0.7,
+};
+
 export type Viseme = typeof VISEMES[number];
 
 export interface VisemeFrame {
@@ -34,7 +53,7 @@ export interface AnimationController {
   /**
    * Layer 2 lip sync: apply a viseme frame.
    * When called, suppresses Layer 1 amplitude-based mouth movement.
-   * If no frame is received for >100 ms, Layer 1 resumes automatically.
+   * If no frame is received briefly, Layer 1 resumes automatically.
    */
   applyVisemeFrame(frame: VisemeFrame): void;
 }

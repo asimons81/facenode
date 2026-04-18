@@ -39,6 +39,7 @@ export class AvatarController {
   // Simulated amplitude clock
   private simTime = 0;
   private lastEventAmplitude = 0;
+  private simulatedAmplitude = 0;
 
   // TTS audio element — set when a speech_start event carries an audioUrl
   private ttsAudio: HTMLAudioElement | null = null;
@@ -79,12 +80,15 @@ export class AvatarController {
         amplitude = this.analyzer.getAmplitude() * this.speakingSensitivity;
       } else {
         const base = this.lastEventAmplitude > 0 ? this.lastEventAmplitude : 0.5;
-        amplitude = base * this.speakingSensitivity *
+        const targetAmplitude = base * this.speakingSensitivity *
           (0.6 + Math.sin(this.simTime * 8.5) * 0.4) *
           (0.85 + Math.sin(this.simTime * 2.3) * 0.15);
+        this.simulatedAmplitude += (targetAmplitude - this.simulatedAmplitude) * Math.min(1, delta * 10);
+        amplitude = this.simulatedAmplitude;
       }
     } else {
       this.lastEventAmplitude = 0;
+      this.simulatedAmplitude += (0 - this.simulatedAmplitude) * Math.min(1, delta * 8);
     }
 
     this.animController.setMouthAmplitude(amplitude);
@@ -129,6 +133,7 @@ export class AvatarController {
       this.ttsAudio?.pause();
       this.ttsAudio = null;
       this.analyzer.disconnect();
+      this.simulatedAmplitude = 0;
     }
 
     this.eventListeners.forEach((cb) => cb(event));

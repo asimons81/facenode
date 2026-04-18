@@ -19,12 +19,15 @@ describe('ProceduralAvatarMesh disposal', () => {
     const eyeL = findObject(mesh.headGroup, 'eyeL', THREE.Group);
     const eyeR = findObject(mesh.headGroup, 'eyeR', THREE.Group);
     const mouth = findObject(mesh.headGroup, 'mouth', THREE.Mesh);
-    const nose = findObject(mesh.headGroup, 'nose', THREE.Mesh);
+    const nose = findObject(mesh.headGroup, 'nose', THREE.Group);
     const hair = findObject(mesh.headGroup, 'hair', THREE.Group);
     const shell = findObject(hair, 'hair-shell', THREE.Mesh);
     const fringe = findObject(hair, 'hair-fringe', THREE.Mesh);
     const browL = findObject(mesh.headGroup, 'browL', THREE.Mesh);
     const earL = findObject(mesh.headGroup, 'earL', THREE.Mesh);
+    const bridge = findObject(nose, 'nose-bridge', THREE.Mesh);
+    const tip = findObject(nose, 'nose-tip', THREE.Mesh);
+    const nostrilL = findObject(nose, 'nostril-shadowL', THREE.Mesh);
 
     expect(eyeL.children.map((child) => child.name)).toEqual([
       'eyeL-socket',
@@ -47,7 +50,10 @@ describe('ProceduralAvatarMesh disposal', () => {
       'eyeR-lowerLidShadow',
     ]);
     expect(hair.children.length).toBeGreaterThanOrEqual(3);
-    expect(nose.position.z).toBeGreaterThan(0.4);
+    expect(nose.children.length).toBeGreaterThanOrEqual(6);
+    expect(bridge.position.z).toBeGreaterThan(0.44);
+    expect(tip.position.z).toBeGreaterThan(bridge.position.z);
+    expect(nostrilL.position.x).toBeLessThan(0);
     expect(browL.position.y).toBeGreaterThan(eyeL.position.y);
     expect(earL.position.x).toBeLessThan(-0.4);
     expect(shell.position.y).toBeGreaterThan(0.15);

@@ -1,24 +1,25 @@
-import type { AnimationController, VisemeFrame } from '@facenode/avatar-core';
+import * as THREE from 'three';
+import { VISEME_OPENNESS, type AnimationController, type VisemeFrame } from '@facenode/avatar-core';
 import type { AvatarState } from '@facenode/avatar-core';
 import type { AvatarMesh } from './avatarMesh.js';
 
-// State-specific head tint colors
 const COLOR_ERROR = 0xe05c5c;
 const COLOR_DISCONNECTED = 0x555555;
 
 type BlinkMode = 'slow' | 'normal' | 'fast';
 
-// Blink intervals (min, max) in seconds per mode
 const BLINK_INTERVALS: Record<BlinkMode, [number, number]> = {
-  slow:   [4, 8],
+  slow: [4, 8],
   normal: [2, 6],
-  fast:   [1, 3],
+  fast: [1, 3],
 };
 
-// How long (seconds) without a viseme frame before Layer 1 resumes
-const VISEME_TIMEOUT = 0.1;
-
-// ── Blink controller ──────────────────────────────────────────────────────────
+const VISEME_TIMEOUT = 0.18;
+const SPEECH_ATTACK = 18;
+const SPEECH_RELEASE = 7;
+const SPEECH_IDLE_RELEASE = 10;
+const SPEECH_HOLD = 0.075;
+const MIN_SPEECH_FLOOR = 0.06;
 
 class BlinkController {
   private timeUntilBlink: number;
@@ -32,7 +33,6 @@ class BlinkController {
     this.timeUntilBlink = this.randomInterval(2, 6);
   }
 
-  /** Replace eye references when mesh is hot-swapped. */
   setEyes(eyeL: { scale: { y: number } }, eyeR: { scale: { y: number } }): void {
     this.eyeL = eyeL;
     this.eyeR = eyeR;
@@ -68,21 +68,18 @@ class BlinkController {
   }
 }
 
-// ── Main controller ───────────────────────────────────────────────────────────
-
 export class ThreeAnimationController implements AnimationController {
   private state: AvatarState = 'disconnected';
   private elapsed = 0;
-  private amplitude = 0;
+  private inputAmplitude = 0;
+  private renderedAmplitude = 0;
+  private speechHoldRemaining = 0;
+  private lastVisemeAmplitude = 0;
 
-  // Config-driven parameters
   private idleIntensity = 0.5;
   private blinkFrequency: BlinkMode = 'normal';
 
-  // Layer 2 viseme state
-  /** Time (seconds) since the last viseme frame was received. Negative = no frame yet. */
   private timeSinceVisemeFrame = -1;
-  /** Whether Layer 2 is currently suppressing Layer 1 amplitude mouth control. */
   private visemeActive = false;
 
   private avatar: AvatarMesh;
@@ -93,17 +90,12 @@ export class ThreeAnimationController implements AnimationController {
     this.blink = new BlinkController(avatar.eyeL, avatar.eyeR);
   }
 
-  // ── Mesh hot-swap ─────────────────────────────────────────────────────────
-
   setAvatarMesh(mesh: AvatarMesh): void {
     this.avatar = mesh;
     this.blink.setEyes(mesh.eyeL, mesh.eyeR);
-    // Re-enter current state to apply color etc.
     this.avatar.onEnterState?.(this.state);
     this.onEnterState(this.state);
   }
-
-  // ── AnimationController interface ─────────────────────────────────────────
 
   onEnterState(state: AvatarState): void {
     this.state = state;
@@ -124,44 +116,75 @@ export class ThreeAnimationController implements AnimationController {
   onExitState(_state: AvatarState): void {}
 
   setMouthAmplitude(value: number): void {
-    this.amplitude = value;
-    // Layer 2 active: don't drive mouth from amplitude directly
-    if (!this.visemeActive) {
-      this.avatar.setMouthAmplitude(value);
-    }
+    this.inputAmplitude = THREE.MathUtils.clamp(value, 0, 1);
   }
 
   applyVisemeFrame(frame: VisemeFrame): void {
     this.timeSinceVisemeFrame = 0;
     this.visemeActive = true;
+    this.lastVisemeAmplitude = this.computeFrameOpenness(frame);
 
-    const mesh = this.avatar;
-    mesh.beginVisemeFrame?.();
+    this.avatar.beginVisemeFrame?.();
 
     for (const { viseme, weight } of frame.visemes) {
-      mesh.setViseme(viseme, weight);
+      this.avatar.setViseme(viseme, weight);
     }
 
-    mesh.flushVisemeFrame?.();
+    this.avatar.flushVisemeFrame?.();
   }
 
-  // ── Config setters ────────────────────────────────────────────────────────
-
   setIdleIntensity(value: number): void {
-    this.idleIntensity = Math.max(0, Math.min(1, value));
+    this.idleIntensity = THREE.MathUtils.clamp(value, 0, 1);
   }
 
   setBlinkFrequency(freq: BlinkMode): void {
     this.blinkFrequency = freq;
   }
 
-  // ── Blink mode resolution ─────────────────────────────────────────────────
-
   private resolveBlinkMode(stateDefault: BlinkMode): BlinkMode {
     return this.blinkFrequency === 'normal' ? stateDefault : this.blinkFrequency;
   }
 
-  // ── Per-frame update ──────────────────────────────────────────────────────
+  private shapeSpeechAmplitude(value: number): number {
+    if (value <= 0.001) return 0;
+    const lifted = Math.pow(THREE.MathUtils.clamp(value, 0, 1), 0.72) * 0.92;
+    return THREE.MathUtils.clamp(lifted < MIN_SPEECH_FLOOR ? MIN_SPEECH_FLOOR : lifted, 0, 1);
+  }
+
+  private computeFrameOpenness(frame: VisemeFrame): number {
+    return THREE.MathUtils.clamp(
+      frame.visemes.reduce((total, { viseme, weight }) => {
+        return total + (VISEME_OPENNESS[viseme] ?? 0.3) * weight;
+      }, 0),
+      0,
+      1,
+    );
+  }
+
+  private updateSpeechEnvelope(delta: number): void {
+    const target = this.state === 'speaking' ? this.shapeSpeechAmplitude(this.inputAmplitude) : 0;
+
+    if (target > this.renderedAmplitude + 0.005) {
+      this.speechHoldRemaining = SPEECH_HOLD;
+      this.renderedAmplitude += (target - this.renderedAmplitude) * Math.min(1, delta * SPEECH_ATTACK);
+      return;
+    }
+
+    if (target < this.renderedAmplitude) {
+      if (this.state === 'speaking' && this.speechHoldRemaining > 0) {
+        this.speechHoldRemaining = Math.max(0, this.speechHoldRemaining - delta);
+        const holdFloor = Math.max(target, this.renderedAmplitude * 0.84);
+        this.renderedAmplitude += (holdFloor - this.renderedAmplitude) * Math.min(1, delta * SPEECH_RELEASE);
+        return;
+      }
+
+      const releaseRate = this.state === 'speaking' ? SPEECH_RELEASE : SPEECH_IDLE_RELEASE;
+      this.renderedAmplitude += (target - this.renderedAmplitude) * Math.min(1, delta * releaseRate);
+      return;
+    }
+
+    this.renderedAmplitude = target;
+  }
 
   update(delta: number): void {
     this.elapsed += delta;
@@ -169,44 +192,46 @@ export class ThreeAnimationController implements AnimationController {
     const hg = this.avatar.headGroup;
     const ii = this.idleIntensity;
 
-    // Layer 2 timeout: if no viseme frame for >VISEME_TIMEOUT seconds, fall back to Layer 1
+    this.updateSpeechEnvelope(delta);
+
     if (this.timeSinceVisemeFrame >= 0) {
       this.timeSinceVisemeFrame += delta;
       if (this.timeSinceVisemeFrame > VISEME_TIMEOUT) {
         this.visemeActive = false;
         this.timeSinceVisemeFrame = -1;
-        // Restore Layer 1 mouth amplitude immediately
-        this.avatar.setMouthAmplitude(this.amplitude);
+        this.avatar.clearVisemes?.();
+        this.renderedAmplitude = Math.max(this.renderedAmplitude, this.lastVisemeAmplitude * 0.9);
       }
     }
 
+    if (!this.visemeActive) {
+      this.avatar.setMouthAmplitude(this.renderedAmplitude);
+    }
+
     switch (this.state) {
-      case 'idle': {
+      case 'idle':
         hg.position.y = Math.sin(t * 0.75) * 0.012 * ii;
         hg.rotation.x = 0;
         hg.rotation.z = Math.sin(t * 0.28) * 0.018 * ii;
         this.blink.update(delta, this.resolveBlinkMode('normal'));
         break;
-      }
 
-      case 'listening': {
+      case 'listening':
         hg.position.y = Math.sin(t * 1.1) * 0.008 * ii;
         hg.rotation.x = (-0.07 + Math.sin(t * 0.55) * 0.018) * ii;
         hg.rotation.z = Math.sin(t * 1.4) * 0.012 * ii;
         this.blink.update(delta, this.resolveBlinkMode('fast'));
         break;
-      }
 
-      case 'thinking': {
+      case 'thinking':
         hg.position.y = Math.sin(t * 0.35) * 0.008 * ii;
         hg.rotation.x = Math.sin(t * 0.42) * 0.04 * ii;
         hg.rotation.z = Math.sin(t * 0.48) * 0.13;
         this.blink.update(delta, this.resolveBlinkMode('normal'));
         break;
-      }
 
       case 'speaking': {
-        const amp = this.amplitude;
+        const amp = this.renderedAmplitude;
         hg.position.y = Math.sin(t * 5.5) * 0.007 * (0.4 + amp);
         hg.rotation.x = Math.sin(t * 3.8) * 0.015 * (0.3 + amp);
         hg.rotation.z = Math.sin(t * 2.1) * 0.01 * ii;
@@ -215,12 +240,11 @@ export class ThreeAnimationController implements AnimationController {
       }
 
       case 'error':
-      case 'disconnected': {
+      case 'disconnected':
         hg.position.y += (0 - hg.position.y) * Math.min(1, delta * 5);
         hg.rotation.x += (0 - hg.rotation.x) * Math.min(1, delta * 5);
         hg.rotation.z += (0 - hg.rotation.z) * Math.min(1, delta * 5);
         break;
-      }
     }
   }
 }

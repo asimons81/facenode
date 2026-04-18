@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { VISEME_OPENNESS } from '@facenode/avatar-core';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 
@@ -24,6 +25,7 @@ export interface AvatarMesh {
   setViseme(viseme: string, weight: number): void;
   beginVisemeFrame?(): void;
   flushVisemeFrame?(): void;
+  clearVisemes?(): void;
   setSkinColor(hex: string): void;
   setHeadColor(color: THREE.ColorRepresentation): void;
   resetHeadColor(): void;
@@ -41,14 +43,6 @@ const BROW_COLOR = new THREE.Color(0x231915);
 const HAIR_COLOR = new THREE.Color(0x2a1d18);
 const MOUTH_COLOR = new THREE.Color(0x200c0a);
 const CONTOUR_COLOR = new THREE.Color(0xa56f53);
-
-// Mouth openness values per OVR viseme (0 = closed, 1 = fully open)
-const VISEME_OPENNESS: Record<string, number> = {
-  sil: 0.0, PP: 0.05, FF: 0.1, TH: 0.15,
-  DD: 0.3,  kk: 0.3,  CH: 0.35, SS: 0.2,
-  nn: 0.25, RR: 0.4,  aa: 1.0, E: 0.65,
-  ih: 0.55, oh: 0.85, ou: 0.7,
-};
 
 function lambert(color: THREE.Color): THREE.MeshLambertMaterial {
   return new THREE.MeshLambertMaterial({ color });
@@ -308,14 +302,57 @@ export class ProceduralAvatarMesh implements AvatarMesh {
     return brow;
   }
 
-  private buildNose(): THREE.Mesh {
-    const nose = new THREE.Mesh(
-      new THREE.SphereGeometry(0.09, 16, 12),
+  private buildNose(): THREE.Group {
+    const nose = new THREE.Group();
+    nose.name = 'nose';
+
+    const bridge = new THREE.Mesh(
+      new THREE.CapsuleGeometry(0.032, 0.16, 6, 12),
       this.skinMaterial,
     );
-    nose.name = 'nose';
-    nose.position.set(0, -0.015, 0.462);
-    nose.scale.set(0.31, 0.7, 0.26);
+    bridge.name = 'nose-bridge';
+    bridge.position.set(0, 0.03, 0.452);
+    bridge.rotation.x = Math.PI / 2.9;
+    bridge.scale.set(0.72, 0.96, 0.74);
+
+    const tip = new THREE.Mesh(
+      new THREE.SphereGeometry(0.066, 16, 12),
+      this.skinMaterial,
+    );
+    tip.name = 'nose-tip';
+    tip.position.set(0, -0.05, 0.492);
+    tip.scale.set(0.86, 0.78, 1.04);
+
+    const base = new THREE.Mesh(
+      new THREE.SphereGeometry(0.052, 14, 10),
+      this.skinMaterial,
+    );
+    base.name = 'nose-base';
+    base.position.set(0, -0.095, 0.476);
+    base.scale.set(1.32, 0.56, 0.72);
+
+    const wingL = new THREE.Mesh(
+      new THREE.SphereGeometry(0.04, 12, 10),
+      this.skinMaterial,
+    );
+    wingL.name = 'nose-wingL';
+    wingL.position.set(-0.056, -0.074, 0.485);
+    wingL.scale.set(0.72, 0.58, 0.72);
+
+    const wingR = wingL.clone();
+    wingR.name = 'nose-wingR';
+    wingR.position.x *= -1;
+
+    nose.add(
+      bridge,
+      tip,
+      base,
+      wingL,
+      wingR,
+      this.buildContour('nostril-shadowL', -0.038, -0.098, 0.502, 0.042, 0.032, 0.03),
+      this.buildContour('nostril-shadowR', 0.038, -0.098, 0.502, 0.042, 0.032, 0.03),
+    );
+
     return nose;
   }
 
@@ -432,6 +469,10 @@ export class ProceduralAvatarMesh implements AvatarMesh {
   /** Call after all setViseme() calls for a frame to flush the accumulated value. */
   flushVisemeFrame(): void {
     this.setMouthAmplitude(Math.min(1, this.visemeOpenness));
+    this.visemeOpenness = 0;
+  }
+
+  clearVisemes(): void {
     this.visemeOpenness = 0;
   }
 
@@ -639,6 +680,22 @@ export class GltfAvatarMesh implements AvatarMesh {
       this.setMouthAmplitude(Math.min(1, this.visemeFrameOpenness));
     }
 
+    this.visemeFrameOpenness = 0;
+    this.visemeFrameMatchedTarget = false;
+  }
+
+  clearVisemes(): void {
+    if (!this.mouthMesh?.morphTargetInfluences) return;
+
+    if (this.mouthMorphIndex >= 0) {
+      this.mouthMesh.morphTargetInfluences[this.mouthMorphIndex] = 0;
+    }
+
+    for (const idx of this.activeVisemeMorphIndices) {
+      this.mouthMesh.morphTargetInfluences[idx] = 0;
+    }
+
+    this.activeVisemeMorphIndices.clear();
     this.visemeFrameOpenness = 0;
     this.visemeFrameMatchedTarget = false;
   }

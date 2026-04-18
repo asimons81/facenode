@@ -45,5 +45,8 @@ export { AvatarStateMachine } from './stateMachine.js';
 export { reduceEvent } from './eventReducer.js';
 
 export type { AnimationController, VisemeFrame } from './animationController.js';
-export { VISEMES } from './animationController.js';
+export { VISEMES, VISEME_OPENNESS } from './animationController.js';
 export type { Viseme } from './animationController.js';
+
+export { CaptionTimeline } from './captionTimeline.js';
+export type { CaptionSnapshot, CaptionTimelineOptions } from './captionTimeline.js';

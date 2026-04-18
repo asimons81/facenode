@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import type { AvatarEvent, AvatarState, RuntimeDiagnostics } from '@facenode/avatar-core';
+import { CaptionTimeline, type AvatarEvent, type AvatarState, type RuntimeDiagnostics } from '@facenode/avatar-core';
 import { HermesAdapterClient } from '@facenode/hermes-adapter';
 import type { WsStatus } from '@facenode/hermes-adapter';
 import { AvatarController } from './AvatarController.js';
@@ -182,7 +182,7 @@ export default function App() {
   const containerRef = useRef<HTMLDivElement>(null);
   const controllerRef = useRef<AvatarController | null>(null);
   const adapterRef = useRef<HermesAdapterClient | null>(null);
-  const captionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const captionTimelineRef = useRef(new CaptionTimeline());
 
   const [avatarState, setAvatarState] = useState<AvatarState>('disconnected');
   const [caption, setCaption] = useState('');
@@ -203,23 +203,26 @@ export default function App() {
     const unsubState = ctrl.onStateChange((next) => setAvatarState(next));
 
     const unsubEvents = ctrl.onEvent((event) => {
-      if (event.type === 'speech_chunk' && event.text) {
-        setCaption(event.text);
-        setCaptionVisible(true);
-        if (captionTimerRef.current) clearTimeout(captionTimerRef.current);
-      }
-      if (event.type === 'speech_end') {
-        if (captionTimerRef.current) clearTimeout(captionTimerRef.current);
-        captionTimerRef.current = setTimeout(() => setCaptionVisible(false), 600);
-      }
+      const next = captionTimelineRef.current.apply(event, Date.now());
+      setCaption(next.text);
+      setCaptionVisible(next.visible);
     });
+
+    let raf = 0;
+    const tickCaption = () => {
+      const next = captionTimelineRef.current.tick(Date.now());
+      setCaption((prev) => (prev === next.text ? prev : next.text));
+      setCaptionVisible(next.visible);
+      raf = window.requestAnimationFrame(tickCaption);
+    };
+    raf = window.requestAnimationFrame(tickCaption);
 
     return () => {
       unsubState();
       unsubEvents();
       adapterRef.current?.disconnect();
       adapterRef.current = null;
-      if (captionTimerRef.current) clearTimeout(captionTimerRef.current);
+      window.cancelAnimationFrame(raf);
       ctrl.destroy();
       controllerRef.current = null;
     };
